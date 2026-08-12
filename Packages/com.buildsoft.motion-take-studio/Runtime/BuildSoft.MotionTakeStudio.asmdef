@@ -1,0 +1,14 @@
+{
+  "name": "BuildSoft.MotionTakeStudio",
+  "rootNamespace": "BuildSoft.MotionTakeStudio",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
