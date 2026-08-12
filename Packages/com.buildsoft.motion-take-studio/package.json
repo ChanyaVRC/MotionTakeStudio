@@ -1,0 +1,23 @@
+{
+  "name": "com.buildsoft.motion-take-studio",
+  "version": "0.1.0",
+  "displayName": "Motion Take Studio",
+  "description": "Record processed Humanoid avatars in Play Mode, review tracking quality, apply full-body IK pose corrections, and bake non-destructive Animation Clips.",
+  "unity": "2022.3",
+  "author": {
+    "name": "BuildSoft",
+    "email": "63221603+ChanyaVRC@users.noreply.github.com",
+    "url": "https://github.com/ChanyaVRC"
+  },
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "com.unity.animation.rigging": "1.2.1"
+  },
+  "keywords": [
+    "animation",
+    "humanoid",
+    "motion-capture",
+    "steamvr",
+    "ik"
+  ]
+}

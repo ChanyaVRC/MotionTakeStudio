@@ -1,0 +1,28 @@
+{
+  "name": "BuildSoft.MotionTakeStudio.Editor.VRChat",
+  "rootNamespace": "BuildSoft.MotionTakeStudio",
+  "references": [
+    "BuildSoft.MotionTakeStudio",
+    "BuildSoft.MotionTakeStudio.Editor",
+    "VRC.SDKBase.Editor.BuildPipeline"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "MOTION_TAKE_STUDIO_VRCSDK"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.vrchat.base",
+      "expression": "[3.0.0,4.0.0)",
+      "define": "MOTION_TAKE_STUDIO_VRCSDK"
+    }
+  ],
+  "noEngineReferences": false
+}
