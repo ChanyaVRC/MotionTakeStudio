@@ -94,6 +94,11 @@ fullname があり、対象 assembly 自身で `total > 0`、`passed == total`�
 `"testables": ["com.buildsoft.motion-take-studio"]` も追加し、runner へ `-ProjectPath` を明示してください。
 詳しい GUI／CLI 手順は[導入・記録・レビューガイド](Documentation~/GettingStarted.md)にあります。
 
+GitHub ActionsではPull Requestに対してSecret不要のrunner／workflow契約だけを検証し、`main`へのpushと
+ReleaseではGameCI Package Modeを使って両Unity suiteを実行します。一時Projectへこのpackageだけを導入するため、
+VRChat SDKとNDMFがない状態も継続的に検証されます。Unity結果が0件、skip、inconclusive、基準件数未満、
+必須E2E欠落の場合はReleaseも失敗します。
+
 この自動テストは、実機の SteamVR／OpenVR デバイス列挙や、任意の NDMF Apply on Play の処理結果までは
 保証しません。リリース前には、対応機器と実アバターを使った標準 Capture フローも別に確認してください。
 

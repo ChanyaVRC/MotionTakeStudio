@@ -169,6 +169,16 @@ pwsh -File "<package>/Tools~/Run-MotionTakeStudioTests.ps1" -SelfTest
 Unity 2022.3.22f1 での全体基準は Editor 95 / 95、Runtime PlayMode 2 / 2 です。件数が異なる場合は
 XML 内の assembly 名、test fullname、Test Runner のフィルターを確認してください。
 
+### GitHub ActionsでUnity license Secret不足になる
+
+`unity-ci` Environmentが`main`を許可していることを確認し、Personalなら`UNITY_LICENSE`、
+`UNITY_EMAIL`、`UNITY_PASSWORD`、Proなら`UNITY_SERIAL`、`UNITY_EMAIL`、`UNITY_PASSWORD`を設定します。
+Repository全体のSecretではなく、main限定のEnvironment Secretを使用してください。Pull Requestでは
+意図的にUnityを起動せず、`CI Contract`だけを実行します。
+Personalの`.ulf`取得場所とProの登録方法は
+[GameCI Activation](https://game.ci/docs/github/activation/)を参照してください。WindowsのPersonal licenseは
+通常`C:\ProgramData\Unity\Unity_lic.ulf`にあります。ライセンスを更新した場合は`UNITY_LICENSE`も更新します。
+
 ## 自動テストが通るが OpenVR / 任意 NDMF の実機 Capture が動かない
 
 自動 PlayMode テストは Runtime の Player loop を確認するもので、実際の SteamVR／OpenVR デバイス、

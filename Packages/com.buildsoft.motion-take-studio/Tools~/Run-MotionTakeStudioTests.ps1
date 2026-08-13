@@ -1,3 +1,4 @@
+#requires -Version 7.0
 [CmdletBinding()]
 param(
     [Parameter()]
@@ -14,7 +15,17 @@ param(
     [int]$TestTimeoutMinutes = 15,
 
     [Parameter()]
-    [switch]$SelfTest
+    [switch]$SelfTest,
+
+    [Parameter()]
+    [switch]$ValidateResultsOnly,
+
+    [Parameter()]
+    [ValidateSet("EditMode", "PlayMode")]
+    [string]$ValidationMode,
+
+    [Parameter()]
+    [string]$ResultPath
 )
 
 Set-StrictMode -Version Latest
@@ -178,6 +189,39 @@ function Get-RequiredIntegerAttribute {
     return $parsedValue
 }
 
+function Get-TestModeContract {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("EditMode", "PlayMode")]
+        [string]$Mode
+    )
+
+    switch ($Mode) {
+        "EditMode" {
+            return [pscustomobject]@{
+                Mode = "EditMode"
+                AssemblyName = "BuildSoft.MotionTakeStudio.Editor.Tests"
+                MinimumTestCount = 95
+                RequiredTestNames = @(
+                    "BuildSoft.MotionTakeStudio.Editor.Tests.MotionCapturePlayModeIntegrationTests.ArmedOptionalProcessor_WaitsForCompletionBeforeReady",
+                    "BuildSoft.MotionTakeStudio.Editor.Tests.MotionCapturePlayModeIntegrationTests.CaptureReviewElbowCorrectionValidationAndBake_RoundTripsAcrossPlayerFrames"
+                )
+            }
+        }
+        "PlayMode" {
+            return [pscustomobject]@{
+                Mode = "PlayMode"
+                AssemblyName = "BuildSoft.MotionTakeStudio.PlayMode.Tests"
+                MinimumTestCount = 2
+                RequiredTestNames = @(
+                    "BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.MotionCaptureAvatarMarker_ConfigurePersistsAcrossTheNextPlayerFrame",
+                    "BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.TwoBoneIkSolver_ReachesMovingTargetAcrossRealPlayerFramesWithoutFlipping"
+                )
+            }
+        }
+    }
+}
+
 function Assert-TestResult {
     param(
         [Parameter(Mandatory = $true)]
@@ -188,6 +232,9 @@ function Assert-TestResult {
 
         [Parameter(Mandatory = $true)]
         [string]$AssemblyName,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$MinimumTestCount = 1,
 
         [string[]]$RequiredTestNames = @()
     )
@@ -215,8 +262,9 @@ function Assert-TestResult {
     $inconclusive = Get-RequiredIntegerAttribute -Element $testRun -Name "inconclusive" -ResultPath $ResultPath
     $result = $testRun.GetAttribute("result")
 
-    if ($total -le 0) {
-        throw "$Mode はテストを 1 件も実行していません。assembly discovery と package testables を確認してください。"
+    if ($total -lt $MinimumTestCount) {
+        throw "$Mode の実行件数が基準未満です " +
+            "(total=$total, minimum=$MinimumTestCount)。assembly discovery と package testables を確認してください。"
     }
 
     if ($passed -le 0) {
@@ -275,9 +323,29 @@ function Assert-TestResult {
         throw "$Mode の test-run result は '$result' です。期待値は 'Passed' です: $ResultPath"
     }
 
-    $executedTests = @{}
-    foreach ($testCase in $matchingAssembly.SelectNodes(".//test-case")) {
-        $executedTests[$testCase.GetAttribute("fullname")] = $testCase.GetAttribute("result")
+    $testCases = @($matchingAssembly.SelectNodes(".//test-case"))
+    if ($testCases.Count -ne $assemblyTotal) {
+        throw "$Mode の対象 assembly 集計と test-case 数が一致しません " +
+            "(assembly total=$assemblyTotal, test cases=$($testCases.Count))。"
+    }
+
+    $executedTests = New-Object `
+        'System.Collections.Generic.Dictionary[string,string]' `
+        ([System.StringComparer]::Ordinal)
+    foreach ($testCase in $testCases) {
+        $testName = $testCase.GetAttribute("fullname")
+        $testResult = $testCase.GetAttribute("result")
+        if ([string]::IsNullOrWhiteSpace($testName) -or
+            -not [string]::Equals(
+                $testResult,
+                "Passed",
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "$Mode の対象 assembly に未完走 test-case があります: '$testName' ($testResult)"
+        }
+
+        if (-not $executedTests.TryAdd($testName, $testResult)) {
+            throw "$Mode の対象 assembly に重複 fullname があります: $testName"
+        }
     }
 
     foreach ($requiredTestName in $RequiredTestNames) {
@@ -299,13 +367,20 @@ function Assert-Throws {
         [scriptblock]$Action,
 
         [Parameter(Mandatory = $true)]
-        [string]$CaseName
+        [string]$CaseName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedMessagePattern
     )
 
     try {
         & $Action
     }
     catch {
+        if ($_.Exception.Message -notmatch $ExpectedMessagePattern) {
+            throw "Runner contract self-test '$CaseName' rejected input for the wrong reason: $($_.Exception.Message)"
+        }
+
         return
     }
 
@@ -332,7 +407,8 @@ function Invoke-RunnerContractTests {
             -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests" `
             -RequiredTestNames @("Runner.RequiredTest")
 
-        Assert-Throws -CaseName "missing required test" -Action {
+        Assert-Throws -CaseName "missing required test" `
+            -ExpectedMessagePattern "必須統合テスト" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $validPath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests" `
                 -RequiredTestNames @("Runner.MissingTest")
@@ -342,12 +418,12 @@ function Invoke-RunnerContractTests {
         Set-Content -LiteralPath $zeroPath -Encoding UTF8 -Value @'
 <test-run result="Passed" total="0" passed="0" failed="0" skipped="0" inconclusive="0" />
 '@
-        Assert-Throws -CaseName "zero tests" -Action {
+        Assert-Throws -CaseName "zero tests" -ExpectedMessagePattern "基準未満" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $zeroPath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
         }
 
-        Assert-Throws -CaseName "missing XML" -Action {
+        Assert-Throws -CaseName "missing XML" -ExpectedMessagePattern "生成されませんでした" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" `
                 -ResultPath (Join-Path $fixtureRoot "missing.xml") `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
@@ -359,7 +435,7 @@ function Invoke-RunnerContractTests {
   <test-suite type="Assembly" name="BuildSoft.MotionTakeStudio.Editor.Tests.dll" />
 </test-run>
 '@
-        Assert-Throws -CaseName "failed tests" -Action {
+        Assert-Throws -CaseName "failed tests" -ExpectedMessagePattern "成功したテストがありません" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $failedPath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
         }
@@ -370,7 +446,7 @@ function Invoke-RunnerContractTests {
   <test-suite type="Assembly" name="BuildSoft.MotionTakeStudio.Editor.Tests.dll" />
 </test-run>
 '@
-        Assert-Throws -CaseName "skipped tests" -Action {
+        Assert-Throws -CaseName "skipped tests" -ExpectedMessagePattern "未完走テスト" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $skippedPath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
         }
@@ -381,14 +457,14 @@ function Invoke-RunnerContractTests {
   <test-suite type="Assembly" name="BuildSoft.MotionTakeStudio.Editor.Tests.dll" />
 </test-run>
 '@
-        Assert-Throws -CaseName "inconclusive tests" -Action {
+        Assert-Throws -CaseName "inconclusive tests" -ExpectedMessagePattern "未完走テスト" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $inconclusivePath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
         }
 
         $malformedPath = Join-Path $fixtureRoot "malformed.xml"
         Set-Content -LiteralPath $malformedPath -Encoding UTF8 -Value '<test-run'
-        Assert-Throws -CaseName "malformed XML" -Action {
+        Assert-Throws -CaseName "malformed XML" -ExpectedMessagePattern "読み取れません" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $malformedPath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
         }
@@ -399,7 +475,7 @@ function Invoke-RunnerContractTests {
   <test-suite type="Assembly" name="Some.Other.Tests.dll" />
 </test-run>
 '@
-        Assert-Throws -CaseName "wrong assembly" -Action {
+        Assert-Throws -CaseName "wrong assembly" -ExpectedMessagePattern "対象 assembly" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $wrongAssemblyPath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
         }
@@ -412,8 +488,52 @@ function Invoke-RunnerContractTests {
               total="1" passed="0" failed="1" skipped="0" inconclusive="0" />
 </test-run>
 '@
-        Assert-Throws -CaseName "failed target assembly" -Action {
+        Assert-Throws -CaseName "failed target assembly" -ExpectedMessagePattern "対象 assembly が完走" -Action {
             Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $assemblyFailedPath `
+                -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
+        }
+
+        Assert-Throws -CaseName "case-sensitive required fullname" `
+            -ExpectedMessagePattern "必須統合テスト" -Action {
+            Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $validPath `
+                -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests" `
+                -RequiredTestNames @("runner.requiredtest")
+        }
+
+        Assert-Throws -CaseName "minimum test count" -ExpectedMessagePattern "基準未満" -Action {
+            Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $validPath `
+                -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests" `
+                -MinimumTestCount 2
+        }
+
+        $countMismatchPath = Join-Path $fixtureRoot "count-mismatch.xml"
+        Set-Content -LiteralPath $countMismatchPath -Encoding UTF8 -Value @'
+<test-run result="Passed" total="2" passed="2" failed="0" skipped="0" inconclusive="0">
+  <test-suite type="Assembly" name="BuildSoft.MotionTakeStudio.Editor.Tests.dll" result="Passed"
+              total="2" passed="2" failed="0" skipped="0" inconclusive="0">
+    <test-case fullname="Runner.OnlyVisibleTest" result="Passed" />
+  </test-suite>
+</test-run>
+'@
+        Assert-Throws -CaseName "forged test count" `
+            -ExpectedMessagePattern "test-case 数が一致" -Action {
+            Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $countMismatchPath `
+                -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
+        }
+
+        $duplicatePath = Join-Path $fixtureRoot "duplicate-fullname.xml"
+        Set-Content -LiteralPath $duplicatePath -Encoding UTF8 -Value @'
+<test-run result="Passed" total="2" passed="2" failed="0" skipped="0" inconclusive="0">
+  <test-suite type="Assembly" name="BuildSoft.MotionTakeStudio.Editor.Tests.dll" result="Passed"
+              total="2" passed="2" failed="0" skipped="0" inconclusive="0">
+    <test-case fullname="Runner.Duplicate" result="Passed" />
+    <test-case fullname="Runner.Duplicate" result="Passed" />
+  </test-suite>
+</test-run>
+'@
+        Assert-Throws -CaseName "duplicate fullname" `
+            -ExpectedMessagePattern "重複 fullname" -Action {
+            Assert-TestResult -Mode "RunnerSelfTest" -ResultPath $duplicatePath `
                 -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests"
         }
 
@@ -450,6 +570,9 @@ function Invoke-TestMode {
 
         [Parameter(Mandatory = $true)]
         [int]$TimeoutMinutes,
+
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$MinimumTestCount = 1,
 
         [string[]]$RequiredTestNames = @()
     )
@@ -519,6 +642,7 @@ function Invoke-TestMode {
         -Mode $Mode `
         -ResultPath $resultPath `
         -AssemblyName $AssemblyName `
+        -MinimumTestCount $MinimumTestCount `
         -RequiredTestNames $RequiredTestNames
 }
 
@@ -527,6 +651,26 @@ $packageRoot = Split-Path -Parent (Split-Path -Parent $scriptPath)
 
 Invoke-RunnerContractTests
 if ($SelfTest) {
+    return
+}
+
+if ($ValidateResultsOnly) {
+    if ([string]::IsNullOrWhiteSpace($ValidationMode)) {
+        throw "-ValidateResultsOnly には -ValidationMode EditMode|PlayMode が必要です。"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ResultPath)) {
+        throw "-ValidateResultsOnly には -ResultPath が必要です。"
+    }
+
+    $validationContract = Get-TestModeContract -Mode $ValidationMode
+    $resolvedResultPath = Resolve-FullPath -Path $ResultPath -BasePath (Get-Location).Path
+    Assert-TestResult `
+        -Mode $validationContract.Mode `
+        -ResultPath $resolvedResultPath `
+        -AssemblyName $validationContract.AssemblyName `
+        -MinimumTestCount $validationContract.MinimumTestCount `
+        -RequiredTestNames $validationContract.RequiredTestNames
     return
 }
 
@@ -548,28 +692,18 @@ $resolvedResultsDirectory = Resolve-FullPath -Path $ResultsDirectory -BasePath $
 New-Item -ItemType Directory -Path $resolvedResultsDirectory -Force | Out-Null
 $resolvedUnityPath = Resolve-UnityPath -RequestedPath $UnityPath -ResolvedProjectPath $resolvedProjectPath
 
-Invoke-TestMode `
-    -UnityExecutable $resolvedUnityPath `
-    -ResolvedProjectPath $resolvedProjectPath `
-    -ResolvedResultsDirectory $resolvedResultsDirectory `
-    -Mode "EditMode" `
-    -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests" `
-    -TimeoutMinutes $TestTimeoutMinutes `
-    -RequiredTestNames @(
-        "BuildSoft.MotionTakeStudio.Editor.Tests.MotionCapturePlayModeIntegrationTests.CaptureReviewElbowCorrectionValidationAndBake_RoundTripsAcrossPlayerFrames"
-    )
-
-Invoke-TestMode `
-    -UnityExecutable $resolvedUnityPath `
-    -ResolvedProjectPath $resolvedProjectPath `
-    -ResolvedResultsDirectory $resolvedResultsDirectory `
-    -Mode "PlayMode" `
-    -AssemblyName "BuildSoft.MotionTakeStudio.PlayMode.Tests" `
-    -TimeoutMinutes $TestTimeoutMinutes `
-    -RequiredTestNames @(
-        "BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.MotionCaptureAvatarMarker_ConfigurePersistsAcrossTheNextPlayerFrame",
-        "BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.TwoBoneIkSolver_ReachesMovingTargetAcrossRealPlayerFramesWithoutFlipping"
-    )
+foreach ($testMode in @("EditMode", "PlayMode")) {
+    $contract = Get-TestModeContract -Mode $testMode
+    Invoke-TestMode `
+        -UnityExecutable $resolvedUnityPath `
+        -ResolvedProjectPath $resolvedProjectPath `
+        -ResolvedResultsDirectory $resolvedResultsDirectory `
+        -Mode $contract.Mode `
+        -AssemblyName $contract.AssemblyName `
+        -TimeoutMinutes $TestTimeoutMinutes `
+        -MinimumTestCount $contract.MinimumTestCount `
+        -RequiredTestNames $contract.RequiredTestNames
+}
 
 Write-Host "Motion Take Studio の EditMode / PlayMode テストが完了しました。"
 Write-Host "Results: $resolvedResultsDirectory"

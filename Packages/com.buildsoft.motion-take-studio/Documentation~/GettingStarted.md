@@ -290,6 +290,7 @@ exit code、timeout、assembly load／compile error、NUnit XML を検査しま�
 test fullname が XML 内で `Passed` でなければ失敗します。
 
 - `BuildSoft.MotionTakeStudio.Editor.Tests.MotionCapturePlayModeIntegrationTests.CaptureReviewElbowCorrectionValidationAndBake_RoundTripsAcrossPlayerFrames`
+- `BuildSoft.MotionTakeStudio.Editor.Tests.MotionCapturePlayModeIntegrationTests.ArmedOptionalProcessor_WaitsForCompletionBeforeReady`
 - `BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.MotionCaptureAvatarMarker_ConfigurePersistsAcrossTheNextPlayerFrame`
 - `BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.TwoBoneIkSolver_ReachesMovingTargetAcrossRealPlayerFramesWithoutFlipping`
 
@@ -300,6 +301,36 @@ XML と `.log` を artifact として保存してください。
 
 コマンドへ `-quit` や `-runSynchronously` を追加しないでください。`-runTests` は完了時に終了し、
 `-runSynchronously` は複数 frame を使う `[UnityTest]` を対象外にするためです。
+
+### GitHub Actions
+
+`.github/workflows/unity-tests.yml` は次の2段階です。
+
+1. Pull Requestでは、Unity資格情報を渡さずrunnerのXML判定とworkflow構成だけを検証します。
+2. `main`へのpush、`main`からの手動実行、Releaseでは、`unity-ci` Environmentを使ってGameCIを実行します。
+
+そのためPR上の`CI Contract`成功はUnityテスト成功を意味しません。merge後の`main`で`Unity CI Gate`を必ず確認し、
+失敗時はReleaseせず修正PRを作成します。Release workflow自身もUnity suiteを再実行します。
+
+Unity本体はPackage Modeの一時Projectへ
+`Packages/com.buildsoft.motion-take-studio`だけを導入します。これにより、VRChat SDK／NDMFのない状態で
+EditorとPlayModeを実行し、偶発的な必須依存を検出します。Unity 2022.3.22f1のDocker imageと使用Actionは
+digest／commit SHAへ固定しています。結果XMLとlogは14日間artifactとして保存されます。
+
+`unity-ci` Environmentは`main`だけを許可し、次のSecretを設定します。値はworkflowやログへ書かないでください。
+
+- Personal: `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`
+- Pro: `UNITY_SERIAL`、`UNITY_EMAIL`、`UNITY_PASSWORD`
+
+Personalの`UNITY_LICENSE`はUnity HubでPersonal licenseを有効化した端末の`.ulf`ファイル全体を登録します。
+Windowsの既定場所は`C:\ProgramData\Unity\Unity_lic.ulf`です。詳しい取得場所とPro設定は
+[GameCI Activation](https://game.ci/docs/github/activation/)を参照してください。ライセンス更新後はSecretも
+更新し、メールアドレスやパスワードをGit、PR、issue、workflow logへ貼らないでください。
+
+GameCIへはPull Requestのコードを渡さず、`pull_request_target`も使用しません。fork由来を含む未信頼コードへ
+Unityアカウント資格情報を公開しないためです。`.github/workflows/release.yml`も同じreusable workflowを呼び、
+Unity CI Gateが成功した`main`以外からはpackageを公開できません。
+ローカルrunnerとCI契約テストにはPowerShell 7以降の`pwsh`が必要です。
 
 ### 実機 Integration は別に確認する
 

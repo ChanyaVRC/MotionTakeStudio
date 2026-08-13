@@ -2,6 +2,8 @@
 
 ## [0.1.1] - 2026-08-13
 
+- Added SHA-pinned GitHub Actions automation. Pull requests run secret-free CI contract tests; protected `main`
+  and releases run the package in GameCI without VRChat SDK or NDMF, validate all NUnit results, and archive logs.
 - Made NDMF Apply on Play an optional enhancement with no package dependency.
 - Capture now uses the ordinary stabilized Humanoid clone when optional processing cannot be armed.
 - An armed avatar processor must still report completion before the capture can become Ready.

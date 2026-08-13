@@ -169,6 +169,14 @@ Unity 2022.3.22f1 での基準結果は Editor **95 / 95**、Runtime PlayMode **
 Editor suite には、内部で Play Mode へ遷移する NDMF なしの全経路 E2E と、任意 Processor の
 完了通知ゲート E2E を含みます。
 
+GitHub Actionsの信頼境界は2段階です。Pull RequestではSecret不要のCI契約だけを実行します。`main`と
+Releaseではmain限定の`unity-ci` Environmentからライセンスを取得し、GameCI Package Modeの一時Projectで
+両suiteを実行します。この一時ProjectにはVRChat SDK／NDMFを導入しません。NUnit XMLはローカルrunnerと
+同じcontractで再検証し、`Unity CI Gate`をRelease jobの必須依存にします。Unity資格情報を未信頼PRへ渡す
+`pull_request_target`や、PR SHAをcheckoutする特権workflowは使用しません。
+PR時点ではUnity回帰を検出せず、merge後のmainで`Unity CI Gate`が失敗し得ます。この場合はReleaseを停止し、
+修正PRで復旧します。Release workflowは公開直前にも同じUnity suiteを再実行します。
+
 この 2 層は決定論的な自動回帰テストです。SteamVR／OpenVR の実デバイス列挙、実際の tracker role、
 任意の NDMF Apply on Play、MA／VRCFury などによる Avatar の再生成は、接続機器と実アバターが必要なため
 別の Integration lane です。自動テストの成功を実機 Capture の成功条件として扱わず、リリース候補では
