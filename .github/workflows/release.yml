@@ -54,12 +54,12 @@ jobs:
 
       # Checkout Local Repository
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
 
       # Get the Package version based on the package.json file
       - name: Get Version
         id: version
-        uses: zoexx/github-action-json-file-properties@b9f36ce6ee6fe2680cd3c32b2c62e22eade7e590
+        uses: zoexx/github-action-json-file-properties@42c424cc2a0f9dfd36c79aedb70d429c0ae3e3fa
         with: 
             file_path: "${{ env.packagePath }}/package.json"
             prop_path: "version"
@@ -90,13 +90,13 @@ jobs:
       # Make a release tag of the version from the package.json file 
       - name: Create Tag
         id: tag_version
-        uses: rickstaa/action-create-tag@88dbf7ff6fe2405f8e8f6c6fdfd78829bc631f83
+        uses: rickstaa/action-create-tag@a1c7777fcb2fee4f19b0f283ba888afa11678b72
         with:
           tag: "${{ env.version }}"
       
       # Publish the Release to GitHub
       - name: Make Release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
           files: |
             ${{ env.zipFile }}
