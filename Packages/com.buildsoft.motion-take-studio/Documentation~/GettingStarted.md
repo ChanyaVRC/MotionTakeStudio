@@ -1,6 +1,6 @@
 # 導入・記録・レビューガイド
 
-このガイドでは、Motion Take Studio 0.1.0 を VPM またはローカルパッケージとして導入し、
+このガイドでは、Motion Take Studio 0.1.1 を VPM またはローカルパッケージとして導入し、
 OpenVR の姿勢を記録して、Scene View で補正し、クリップへ書き出すまでを説明します。
 
 ![Motion Take Studio のワークフロー](images/motion-take-workflow.png)
@@ -26,12 +26,11 @@ OpenVR の姿勢を記録して、Scene View で補正し、クリップへ書�
 4. `com.buildsoft.motion-take-studio/package.json` を指定します。
 5. Console にコンパイルエラーがないことを確認します。
 
-Unity Animation Rigging 1.2.1 は依存関係として解決されます。標準の
-**Prepare Play Capture** では NDMF を導入し、NDMF の **Apply on Play** を有効にしてください。
-Motion Take Studio は一時 Clone に NDMF の `AvatarActivator` を追加し、処理ゲートを確認します。
-NDMF がない、Apply on Play が無効、または設定を確認できない場合は、未処理 Clone を誤って
-収録しないよう Prepare を中止します。NDMF は Reflection 経由のため、パッケージ自体の
-コンパイル時依存ではありません。
+Unity Animation Rigging 1.2.1 は依存関係として解決されます。NDMF は任意で、自動導入されません。
+NDMF と **Apply on Play** を安全に利用でき、完了通知を受け取れる場合は、一時 Clone に
+`AvatarActivator` を追加して処理後の Avatar を収録します。NDMF がない、Apply on Play が無効・
+確認不能、または安全に開始できない場合は、通常の Humanoid Clone で Capture を続行します。
+一度任意処理を開始した場合は、処理途中の Root を収録しないよう完了通知まで Ready にしません。
 
 既定の Tracker Provider を使う場合は、SteamVR Unity Plugin を導入して SteamVR を起動します。
 OpenVR がなくてもパッケージ自体はコンパイルできますが、既定 Provider では録画を開始できません。
@@ -79,10 +78,10 @@ Play Mode の **Ready** 後に **Refresh Tracked Devices** を押し、各シリ
 2. Lyuma Av3 Emulator や Gesture Manager が有効なら停止します。既知のクローン競合が
    見つかると、Motion Take Studio は Capture を開始しません。
 3. **Prepare Play Capture** を押します。
-4. ツールが一時的な additive Scene とアバターの Clone を作り、NDMF Apply on Play の設定を
-   確認して Clone に `AvatarActivator` を追加してから Play Mode へ移行します。
-5. 状態が **Ready** になるまで待ちます。NDMF の処理ゲートを通過し、再取得した Animator と
-   必要な Humanoid Bone が 2 フレーム連続で安定すると Ready になります。
+4. ツールが一時的な additive Scene とアバターの Clone を作ります。任意の NDMF Apply on Play を
+   安全に開始できる場合だけ `AvatarActivator` を追加し、それ以外は通常 Clone を使います。
+5. 状態が **Ready** になるまで待ちます。任意処理を開始した場合は完了通知後、通常 Clone の場合は
+   そのまま、再取得した Animator と必要な Humanoid Bone が 2 フレーム連続で安定すると Ready になります。
 6. **Record** を押します。HumanPose とトラッカー姿勢は 60 Hz で記録されます。
 7. 動きを終えたら **Stop & Review** を押します。
 
@@ -199,14 +198,14 @@ Project View で Manual クリップを選び、**Assets > BuildSoft > Open Clip
 末尾の 1 行がクラッシュで途中までしか書かれなかった場合、その行を無視して読み込めます。
 
 Stop & Review 後は、Capture、Recipe、スクラブ位置を含む `.review-checkpoint.json` も原子的に
-更新されます。Play Mode 中の Assembly Reload 後は、処理済み Humanoid を再バインドして Review を
+更新されます。Play Mode 中の Assembly Reload 後は、収録用 Humanoid を再バインドして Review を
 復元します。正常な Save & Exit 後は Checkpoint を `Completed` へ移します。
 
 正常な Save & Exit では Journal が `Archived` 側へ移されます。Edit Mode での書き出し用には、
 同じ Recovery フォルダーへ `.pending-export.json` も作成され、書き出し成功後に `Completed` へ
 移動します。
 
-0.1.0 には Recovery 一覧・復元 UI がありません。`MotionTakeRecovery.FindAll` と
+現行版には Recovery 一覧・復元 UI がありません。`MotionTakeRecovery.FindAll` と
 `MotionTakeRecovery.TryLoad` を Editor スクリプトから利用できます。元ファイルを手動で
 削除する前にバックアップしてください。
 
@@ -221,7 +220,7 @@ Stop & Review 後は、Capture、Recipe、スクラブ位置を含む `.review-c
 - **PlayMode — `BuildSoft.MotionTakeStudio.PlayMode.Tests`**: Editor の Play Mode へ実際に入り、
   Runtime Component と複数 Player frame にまたがるライフサイクルを検証します。
 
-Unity 2022.3.22f1 での確認結果は、Editor suite が **87 / 87**、Runtime PlayMode suite が
+Unity 2022.3.22f1 での確認結果は、Editor suite が **95 / 95**、Runtime PlayMode suite が
 **2 / 2** です。
 
 ### Package のテストを表示する
@@ -249,7 +248,7 @@ Unity 2022.3.22f1 での確認結果は、Editor suite が **87 / 87**、Runtime
 1. **Window > General > Test Runner** を開きます。
 2. **EditMode** タブで `BuildSoft.MotionTakeStudio.Editor.Tests` を実行します。
 3. **PlayMode** タブで `BuildSoft.MotionTakeStudio.PlayMode.Tests` を実行します。
-4. PlayMode run が実際に Play Mode へ入り、Editor が 87 件、PlayMode が 2 件、かつ全件成功する
+4. PlayMode run が実際に Play Mode へ入り、Editor が 95 件、PlayMode が 2 件、かつ全件成功する
    ことを確認します。
 
 ### CLI / CI
@@ -291,6 +290,7 @@ exit code、timeout、assembly load／compile error、NUnit XML を検査しま�
 test fullname が XML 内で `Passed` でなければ失敗します。
 
 - `BuildSoft.MotionTakeStudio.Editor.Tests.MotionCapturePlayModeIntegrationTests.CaptureReviewElbowCorrectionValidationAndBake_RoundTripsAcrossPlayerFrames`
+- `BuildSoft.MotionTakeStudio.Editor.Tests.MotionCapturePlayModeIntegrationTests.ArmedOptionalProcessor_WaitsForCompletionBeforeReady`
 - `BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.MotionCaptureAvatarMarker_ConfigurePersistsAcrossTheNextPlayerFrame`
 - `BuildSoft.MotionTakeStudio.PlayMode.Tests.MotionTakeRuntimePlayModeTests.TwoBoneIkSolver_ReachesMovingTargetAcrossRealPlayerFramesWithoutFlipping`
 
@@ -302,10 +302,40 @@ XML と `.log` を artifact として保存してください。
 コマンドへ `-quit` や `-runSynchronously` を追加しないでください。`-runTests` は完了時に終了し、
 `-runSynchronously` は複数 frame を使う `[UnityTest]` を対象外にするためです。
 
+### GitHub Actions
+
+`.github/workflows/unity-tests.yml` は次の2段階です。
+
+1. Pull Requestでは、Unity資格情報を渡さずrunnerのXML判定とworkflow構成だけを検証します。
+2. `main`へのpush、`main`からの手動実行、Releaseでは、`unity-ci` Environmentを使ってGameCIを実行します。
+
+そのためPR上の`CI Contract`成功はUnityテスト成功を意味しません。merge後の`main`で`Unity CI Gate`を必ず確認し、
+失敗時はReleaseせず修正PRを作成します。Release workflow自身もUnity suiteを再実行します。
+
+Unity本体はPackage Modeの一時Projectへ
+`Packages/com.buildsoft.motion-take-studio`だけを導入します。これにより、VRChat SDK／NDMFのない状態で
+EditorとPlayModeを実行し、偶発的な必須依存を検出します。Unity 2022.3.22f1のDocker imageと使用Actionは
+digest／commit SHAへ固定しています。結果XMLとlogは14日間artifactとして保存されます。
+
+`unity-ci` Environmentは`main`だけを許可し、次のSecretを設定します。値はworkflowやログへ書かないでください。
+
+- Personal: `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`
+- Pro: `UNITY_SERIAL`、`UNITY_EMAIL`、`UNITY_PASSWORD`
+
+Personalの`UNITY_LICENSE`はUnity HubでPersonal licenseを有効化した端末の`.ulf`ファイル全体を登録します。
+Windowsの既定場所は`C:\ProgramData\Unity\Unity_lic.ulf`です。詳しい取得場所とPro設定は
+[GameCI Activation](https://game.ci/docs/github/activation/)を参照してください。ライセンス更新後はSecretも
+更新し、メールアドレスやパスワードをGit、PR、issue、workflow logへ貼らないでください。
+
+GameCIへはPull Requestのコードを渡さず、`pull_request_target`も使用しません。fork由来を含む未信頼コードへ
+Unityアカウント資格情報を公開しないためです。`.github/workflows/release.yml`も同じreusable workflowを呼び、
+Unity CI Gateが成功した`main`以外からはpackageを公開できません。
+ローカルrunnerとCI契約テストにはPowerShell 7以降の`pwsh`が必要です。
+
 ### 実機 Integration は別に確認する
 
 自動 PlayMode suite は Runtime の Player loop を確認しますが、SteamVR／OpenVR の実デバイス列挙、
-トラッカーの装着ロール、NDMF Apply on Play、MA／VRCFury を含む実アバターの処理結果を保証しません。
+トラッカーの装着ロール、任意の NDMF Apply on Play、MA／VRCFury を含む実アバターの処理結果を保証しません。
 リリース候補では、自動テストに加えて本書の **Play Capture** を対応 HMD、3／6／11 点構成、
 対象アバターで実行し、Ready、Record、Review、Save & Exit を別の実機検証として確認してください。
 

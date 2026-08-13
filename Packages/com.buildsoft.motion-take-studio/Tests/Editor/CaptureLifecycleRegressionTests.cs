@@ -97,46 +97,68 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             Assert.That(warning, Does.Contain("hitch").IgnoreCase);
         }
 
+        [TestCase(false, false, true)]
+        [TestCase(false, true, true)]
+        [TestCase(true, false, false)]
+        [TestCase(true, true, true)]
+        public void CaptureRootAcceptance_TreatsAvatarProcessingAsOptional(
+            bool processingArmed,
+            bool completionConfirmed,
+            bool expected)
+        {
+            var gate = RequireStaticMethod(
+                typeof(MotionCaptureCoordinator),
+                "CanAcceptCaptureRoot",
+                typeof(bool),
+                typeof(bool));
+
+            Assert.That(InvokeBool(gate, processingArmed, completionConfirmed), Is.EqualTo(expected),
+                "A plain Humanoid clone is valid when no optional processor is armed, " +
+                "while an armed processor must complete before the root is accepted.");
+        }
+
+        [TestCase(false, true, true, true, false)]
+        [TestCase(true, false, true, true, false)]
+        [TestCase(true, true, false, true, false)]
+        [TestCase(true, true, true, false, false)]
+        [TestCase(true, true, true, true, true)]
+        public void OptionalAvatarProcessing_ArmsOnlyWithACompletionNotifier(
+            bool activatorAvailable,
+            bool applyOnPlayEnabled,
+            bool completionNotifierAvailable,
+            bool rootIsEligibleForCompletionCallback,
+            bool expected)
+        {
+            var gate = RequireStaticMethod(
+                typeof(ProcessedAvatarHooks),
+                "CanArmOptionalProcessing",
+                typeof(bool),
+                typeof(bool),
+                typeof(bool),
+                typeof(bool));
+
+            Assert.That(
+                InvokeBool(
+                    gate,
+                    activatorAvailable,
+                    applyOnPlayEnabled,
+                    completionNotifierAvailable,
+                    rootIsEligibleForCompletionCallback),
+                Is.EqualTo(expected));
+        }
+
         [TestCase(false, false)]
-        [TestCase(true, false)]
-        public void ProcessedAvatarReadiness_RequiresNdmfAndApplyOnPlay(
-            bool ndmfAvailable,
-            bool applyOnPlayEnabled)
+        [TestCase(true, true)]
+        public void ProcessorCompletion_IsAcceptedOnlyWhenProcessingWasArmed(
+            bool processingArmed,
+            bool expected)
         {
             var gate = RequireStaticMethod(
                 typeof(MotionCaptureCoordinator),
-                "CanReportProcessedAvatarReady",
-                typeof(bool),
+                "CanAcceptProcessorCompletion",
                 typeof(bool));
 
-            Assert.That(InvokeBool(gate, ndmfAvailable, applyOnPlayEnabled), Is.False,
-                "A stable unprocessed clone must never be surfaced as processed Ready.");
-        }
-
-        [Test]
-        public void ProcessedAvatarReadiness_AllowsNdmfWithApplyOnPlay()
-        {
-            var gate = RequireStaticMethod(
-                typeof(MotionCaptureCoordinator),
-                "CanReportProcessedAvatarReady",
-                typeof(bool),
-                typeof(bool));
-
-            Assert.That(InvokeBool(gate, true, true), Is.True);
-        }
-
-        [Test]
-        public void ProcessedAvatarQueue_RequiresAProcessorCompletionCallback()
-        {
-            var gate = RequireStaticMethod(
-                typeof(MotionCaptureCoordinator),
-                "CanQueueProcessedAvatar",
-                typeof(bool),
-                typeof(bool));
-
-            Assert.That(InvokeBool(gate, true, false), Is.False,
-                "Arming Apply on Play alone must not promote the raw additive clone.");
-            Assert.That(InvokeBool(gate, true, true), Is.True);
+            Assert.That(InvokeBool(gate, processingArmed), Is.EqualTo(expected));
         }
 
         [Test]

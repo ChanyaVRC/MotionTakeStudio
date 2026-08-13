@@ -1,0 +1,134 @@
+name: Unity Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unity-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: CI Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+
+      - name: Test runner contract
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1
+          -SelfTest
+
+      - name: Test workflow contract
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityCiContract.ps1
+          -RepositoryRoot .
+
+  # Unity account credentials never reach pull-request code. This lane runs only
+  # after a reviewed change lands on protected main, and again before release.
+  unity:
+    name: Unity EditMode + PlayMode
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: contract
+    runs-on: ubuntu-latest
+    environment: unity-ci
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+
+      - name: Verify Unity license secrets
+        shell: bash
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          if [[ -z "$UNITY_EMAIL" || -z "$UNITY_PASSWORD" ]]; then
+            echo "Missing UNITY_EMAIL or UNITY_PASSWORD in the unity-ci environment."
+            exit 1
+          fi
+          if [[ -z "$UNITY_LICENSE" && -z "$UNITY_SERIAL" ]]; then
+            echo "Missing UNITY_LICENSE (Personal) or UNITY_SERIAL (Pro) in the unity-ci environment."
+            exit 1
+          fi
+
+      - name: Run package tests without VRChat SDK or NDMF
+        id: unity_test
+        uses: game-ci/unity-test-runner@0ff419b913a3630032cbe0de48a0099b5a9f0ed9 # v4.3.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          packageMode: true
+          projectPath: Packages/com.buildsoft.motion-take-studio
+          unityVersion: 2022.3.22f1
+          testMode: all
+          artifactsPath: artifacts
+          customImage: unityci/editor@sha256:1c7b9cf8a65a304bb99f222d91c3452f99148ad647d1416ed658a3908a9f8dea
+          customParameters: >-
+            -nographics
+            -assemblyNames
+            BuildSoft.MotionTakeStudio.Editor.Tests;BuildSoft.MotionTakeStudio.PlayMode.Tests
+
+      - name: Validate EditMode NUnit XML
+        if: steps.unity_test.outcome == 'success'
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1
+          -ValidateResultsOnly
+          -ValidationMode EditMode
+          -ResultPath artifacts/editmode-results.xml
+
+      - name: Validate PlayMode NUnit XML
+        if: steps.unity_test.outcome == 'success'
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1
+          -ValidateResultsOnly
+          -ValidationMode PlayMode
+          -ResultPath artifacts/playmode-results.xml
+
+      - name: Upload Unity test artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unity-tests-${{ github.sha }}
+          path: artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
+  gate:
+    name: Unity CI Gate
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs:
+      - contract
+      - unity
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require contract and Unity tests
+        env:
+          CONTRACT_RESULT: ${{ needs.contract.result }}
+          UNITY_RESULT: ${{ needs.unity.result }}
+        run: |
+          if [[ "$CONTRACT_RESULT" != "success" || "$UNITY_RESULT" != "success" ]]; then
+            echo "Unity CI failed: contract=$CONTRACT_RESULT unity=$UNITY_RESULT"
+            exit 1
+          fi
+          echo "Unity CI passed."

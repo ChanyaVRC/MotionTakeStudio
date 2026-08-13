@@ -77,6 +77,21 @@ namespace BuildSoft.MotionTakeStudio.Editor
             MotionCaptureCoordinator.NotifyProcessedRoot(root, source);
         }
 
+        public static void NotifyProcessingRootDiscovered(GameObject root, string source)
+        {
+            MotionCaptureCoordinator.NotifyProcessingRoot(root, source);
+        }
+
+        internal static bool CanArmOptionalProcessing(
+            bool activatorAvailable,
+            bool applyOnPlayEnabled,
+            bool completionNotifierAvailable,
+            bool rootIsEligibleForCompletionCallback)
+        {
+            return activatorAvailable && applyOnPlayEnabled && completionNotifierAvailable &&
+                   rootIsEligibleForCompletionCallback;
+        }
+
         public static bool TryInstallNdmfApplyOnPlayActivator(GameObject root, out string warning)
         {
             warning = null;
@@ -91,6 +106,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 return false;
             }
 
+            Component addedActivator = null;
             try
             {
                 var configType = FindType("nadena.dev.ndmf.config.Config");
@@ -105,28 +121,69 @@ namespace BuildSoft.MotionTakeStudio.Editor
 
                 if (!(bool)applyOnPlay.GetValue(null, null))
                 {
-                    warning = "NDMF is installed, but Apply on Play is disabled; the capture clone will remain unprocessed.";
+                    warning =
+                        "NDMF is installed, but Apply on Play is disabled; " +
+                        "optional processing will be skipped.";
+                    return false;
+                }
+
+                var completionNotifierAvailable = FindType(
+                    "BuildSoft.MotionTakeStudio.Editor.Integrations.VRChat.VrchatCaptureRootLateHook") != null;
+                var descriptorType = FindType(
+                    "VRC.SDK3.Avatars.Components.VRCAvatarDescriptor");
+                var rootIsEligibleForCompletionCallback = descriptorType != null &&
+                                                          typeof(Component).IsAssignableFrom(descriptorType) &&
+                                                          root.GetComponent(descriptorType) != null;
+                if (!CanArmOptionalProcessing(
+                        true,
+                        true,
+                        completionNotifierAvailable,
+                        rootIsEligibleForCompletionCallback))
+                {
+                    warning =
+                        "NDMF Apply on Play is enabled, but this root cannot provide a compatible " +
+                        "VRChat completion callback; " +
+                        "the standard Humanoid clone will be captured.";
                     return false;
                 }
 
                 if (root.GetComponent(activatorType) == null)
                 {
-                    var activator = root.AddComponent(activatorType);
-                    activator.hideFlags = HideFlags.HideInInspector;
+                    addedActivator = root.AddComponent(activatorType);
+                    addedActivator.hideFlags = HideFlags.HideInInspector;
                 }
 
                 return true;
             }
             catch (TargetInvocationException exception)
             {
+                RemoveAddedActivator(addedActivator);
                 warning = "NDMF Apply on Play could not activate the capture clone: " +
                           (exception.InnerException?.Message ?? exception.Message);
                 return false;
             }
             catch (Exception exception)
             {
+                RemoveAddedActivator(addedActivator);
                 warning = "NDMF Apply on Play could not activate the capture clone: " + exception.Message;
                 return false;
+            }
+        }
+
+        private static void RemoveAddedActivator(Component activator)
+        {
+            if (activator == null)
+            {
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                UnityEngine.Object.Destroy(activator);
+            }
+            else
+            {
+                UnityEngine.Object.DestroyImmediate(activator);
             }
         }
 

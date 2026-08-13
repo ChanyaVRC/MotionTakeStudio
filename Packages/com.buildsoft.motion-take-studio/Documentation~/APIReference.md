@@ -81,9 +81,10 @@ JointFlip は隣接 Sample の Bend Direction が `MotionTakeValidationSettings.
 これらは Unity Editor の Main Thread から呼びます。状態遷移を飛ばすと
 `InvalidOperationException` になります。
 
-標準 `PrepareCapture` は一時 Clone に NDMF `AvatarActivator` を追加し、NDMF の Apply on Play が
-有効であることを確認します。NDMF はコンパイル時参照ではありませんが、この処理ゲートがない場合は
-未処理 Avatar を Ready にせず Prepare を失敗させます。
+標準 `PrepareCapture` は一時 Clone を作り、NDMF Apply on Play と互換の完了通知を安全に利用できる
+場合だけ `AvatarActivator` を追加します。この場合は完了通知後の Root を安定化して Ready にします。
+NDMF がない、無効、確認不能、または安全に開始できない場合は、通常の Humanoid Clone を安定化して
+Ready にします。NDMF はコンパイル時・パッケージ依存ではありません。
 
 `IMotionTakeStudioSession` と `MotionTakeStudioSessionBridge.Register` を使うと、独自の Coordinator を
 ウィンドウへ接続できます。登録は `IDisposable` を返すため、所有者の破棄時に Dispose してください。
@@ -215,7 +216,7 @@ Avatar の体格によらずメートルです。
 - `Archive(path, out archivedPath, out error)`: Recovery 内の Journal を `Archived` へ移動
 
 Recovery API は Editor 専用です。`CaptureTake` はシリアライズ可能な中間形式であり、
-`MotionTakeAsset` そのものではありません。0.1.0 には `CaptureTake` を UI から `.mttake` へ
+`MotionTakeAsset` そのものではありません。現行版には `CaptureTake` を UI から `.mttake` へ
 再保存する操作はありません。
 
 戻る: [導入・記録・レビューガイド](GettingStarted.md) / [アーキテクチャ](Architecture.md)

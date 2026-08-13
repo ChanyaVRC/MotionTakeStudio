@@ -5,8 +5,8 @@ using VRC.SDKBase.Editor.BuildPipeline;
 namespace BuildSoft.MotionTakeStudio.Editor.Integrations.VRChat
 {
     /// <summary>
-    /// Captures the exact root reference before VRChat processors can strip the inert marker. Animator and bone
-    /// references are deliberately acquired later by the stable-frame queue.
+    /// Participates at the beginning of the VRChat callback chain without reporting completion. Only the late hook
+    /// may confirm optional processing; otherwise the raw root could be accepted while processors are still running.
     /// </summary>
     public sealed class VrchatCaptureRootEarlyHook : IVRCSDKPreprocessAvatarCallback
     {
@@ -14,9 +14,9 @@ namespace BuildSoft.MotionTakeStudio.Editor.Integrations.VRChat
 
         public bool OnPreprocessAvatar(GameObject avatarGameObject)
         {
-            ProcessedAvatarHooks.NotifyDirectProcessedRoot(
+            ProcessedAvatarHooks.NotifyProcessingRootDiscovered(
                 avatarGameObject,
-                "VRChat preprocess (early direct root)");
+                "VRChat preprocess (early root discovery)");
             return true;
         }
     }

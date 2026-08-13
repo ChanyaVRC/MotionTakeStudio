@@ -5,7 +5,7 @@ using UnityEngine;
 namespace BuildSoft.MotionTakeStudio.Editor
 {
     /// <summary>
-    /// Applies calibrated OpenVR targets to the processed Humanoid before its
+    /// Applies calibrated OpenVR targets to the capture Humanoid before its
     /// HumanPose is sampled. Filtering/root cleanup/foot locks run here; manual
     /// recipe IK is applied later by MotionTakePreviewDriver.
     /// </summary>

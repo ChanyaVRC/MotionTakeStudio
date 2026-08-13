@@ -21,7 +21,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
 
     /// <summary>
     /// Crash- and assembly-reload-safe value snapshot for Play Mode review. It intentionally stores no scene object
-    /// references; the coordinator rebinds the processed Humanoid after reload.
+    /// references; the coordinator rebinds the capture Humanoid after reload.
     /// </summary>
     internal static class ReviewRecoveryCheckpoint
     {

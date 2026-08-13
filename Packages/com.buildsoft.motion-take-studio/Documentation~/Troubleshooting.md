@@ -22,10 +22,10 @@ Lyuma Av3 Emulator または Gesture Manager の有効な Component が見つか
 
 ## Ready にならない
 
-- NDMF が導入され、NDMF の **Apply on Play** が有効か確認します。Motion Take Studio は
-  この処理ゲートを確認できない Clone を Ready にしません。
 - 一時 Capture Scene のアバターに、有効な Humanoid Animator と必要 Bone が残っているか
   Console の警告を確認します。
+- Status が任意 Processor の完了待ちを示す場合は、NDMF の **Apply on Play** と VRChat SDK Hook が
+  有効か確認します。処理を開始していない場合は、通常の Humanoid Clone で Ready になります。
 - NDMF / VRChat SDK などが Animator を再生成している間は待機します。安定した同じ Animator と
   Bone Map が 2 フレーム続くと Ready になります。
 - 外部 Processor が毎フレーム Avatar を作り直す場合は、その処理を停止してください。
@@ -39,8 +39,7 @@ Lyuma Av3 Emulator または Gesture Manager の有効な Component が見つか
   確認します。3 台見えていても Role や Pose が不正なら開始しません。
 
 独自の `ITrackerPoseProvider` を `SetTrackerProvider` で注入する場合、OpenVR は不要です。
-ただし有効な Head／LeftHand／RightHand という Record 条件と、NDMF Apply on Play による
-処理済み Avatar の要件は変わりません。
+ただし有効な Head／LeftHand／RightHand という Record 条件は変わりません。NDMF は任意です。
 
 ## Generic Tracker の身体部位が違う
 
@@ -167,13 +166,23 @@ pwsh -File "<package>/Tools~/Run-MotionTakeStudioTests.ps1" -SelfTest
 
 `Runner contract self-tests passed.` と表示されれば、XML 欠落・破損、0 件、failed／skip／inconclusive、
 対象 assembly と必須 test の不一致を判定する runner 側の契約は動作しています。
-Unity 2022.3.22f1 での全体基準は Editor 87 / 87、Runtime PlayMode 2 / 2 です。件数が異なる場合は
+Unity 2022.3.22f1 での全体基準は Editor 95 / 95、Runtime PlayMode 2 / 2 です。件数が異なる場合は
 XML 内の assembly 名、test fullname、Test Runner のフィルターを確認してください。
 
-## 自動テストが通るが OpenVR / NDMF の実機 Capture が動かない
+### GitHub ActionsでUnity license Secret不足になる
+
+`unity-ci` Environmentが`main`を許可していることを確認し、Personalなら`UNITY_LICENSE`、
+`UNITY_EMAIL`、`UNITY_PASSWORD`、Proなら`UNITY_SERIAL`、`UNITY_EMAIL`、`UNITY_PASSWORD`を設定します。
+Repository全体のSecretではなく、main限定のEnvironment Secretを使用してください。Pull Requestでは
+意図的にUnityを起動せず、`CI Contract`だけを実行します。
+Personalの`.ulf`取得場所とProの登録方法は
+[GameCI Activation](https://game.ci/docs/github/activation/)を参照してください。WindowsのPersonal licenseは
+通常`C:\ProgramData\Unity\Unity_lic.ulf`にあります。ライセンスを更新した場合は`UNITY_LICENSE`も更新します。
+
+## 自動テストが通るが OpenVR / 任意 NDMF の実機 Capture が動かない
 
 自動 PlayMode テストは Runtime の Player loop を確認するもので、実際の SteamVR／OpenVR デバイス、
-ドライバー、USB 接続、tracker role、NDMF Apply on Play の処理結果は対象外です。自動テストとは別に、
+ドライバー、USB 接続、tracker role、任意の NDMF Apply on Play の処理結果は対象外です。自動テストとは別に、
 SteamVR を起動した対応 PC で本書の Ready／Record 条件を確認してください。NDMF、OpenVR、実アバターを
 使う検証が失敗した場合は、このページの **Ready にならない**、**OpenVR が見つからない**、
 **Generic Tracker の身体部位が違う**の順に切り分けます。
