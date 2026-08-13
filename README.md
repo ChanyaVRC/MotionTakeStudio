@@ -1,6 +1,6 @@
 # Motion Take Studio
 
-SteamVR/OpenVRのトラッキングから、Play Modeでベイク済みのHumanoidアバターを収録・レビューし、全身IK補正付きAnimation Clipを生成するUnity Editor拡張です。
+SteamVR/OpenVRのトラッキングから、Play ModeのHumanoidアバターを収録・レビューし、全身IK補正付きAnimation Clipを生成するUnity Editor拡張です。NDMFは任意で、未導入でも通常のHumanoid Cloneを収録できます。
 
 パッケージID: `com.buildsoft.motion-take-studio`
 
@@ -13,7 +13,7 @@ SteamVR/OpenVRのトラッキングから、Play Modeでベイク済みのHumano
 2. 対象プロジェクトの `Manage Project` を開きます。
 3. `Motion Take Studio` を追加します。
 
-初回Releaseの公開後にVCCからインストール可能になります。
+現在、VCCからインストールできます。
 
 ## 開発
 

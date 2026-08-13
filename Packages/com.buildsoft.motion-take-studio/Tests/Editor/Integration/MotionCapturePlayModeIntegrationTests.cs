@@ -40,8 +40,8 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             var coordinator = MotionCaptureCoordinator.Instance;
             var reset = RequireInstanceSeam("ResetForTests", Type.EmptyTypes);
             var arm = RequireInstanceSeam(
-                "ArmProcessedAvatarForTests",
-                new[] { typeof(GameObject) });
+                "ArmCaptureAvatarForTests",
+                new[] { typeof(GameObject), typeof(bool) });
             var buildCorrected = RequireInstanceSeam(
                 "BuildCorrectedFramesForExport",
                 Type.EmptyTypes);
@@ -53,10 +53,7 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             SetMuscle(reachablePose.muscles, "Left Arm Down-Up", 0.1f);
             _sourceAvatar.ApplyHumanPose(reachablePose);
             coordinator.SetTrackerProvider(new SixPointTrackerProvider(_sourceAvatar));
-            arm.Invoke(coordinator, new object[] { _sourceAvatar.Root });
-            ProcessedAvatarHooks.NotifyDirectProcessedRoot(
-                _sourceAvatar.Root,
-                "PlayMode integration processed root");
+            arm.Invoke(coordinator, new object[] { _sourceAvatar.Root, false });
 
             for (var frame = 0;
                  frame < 8 && coordinator.Phase != MotionTakeSessionPhase.Ready;
@@ -66,7 +63,7 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             }
 
             Assert.That(coordinator.Phase, Is.EqualTo(MotionTakeSessionPhase.Ready),
-                "The processed generated Humanoid must stabilize on real player frames.");
+                "A generated Humanoid must stabilize on real player frames without NDMF.");
             coordinator.BeginRecording();
             for (var frame = 0; frame < 12 && coordinator.FrameCount < 5; frame++)
             {
@@ -189,6 +186,52 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
                 Is.LessThanOrEqualTo(0.01f),
                 "The baked clip must reproduce the corrected preview Hand within 10 mm, " +
                 "including Humanoid root reconstruction. The IK target pin is asserted separately at 5 mm.");
+        }
+
+        [UnityTest]
+        public IEnumerator ArmedOptionalProcessor_WaitsForCompletionBeforeReady()
+        {
+            yield return new EnterPlayMode();
+            Assert.That(Application.isPlaying, Is.True);
+
+            var coordinator = MotionCaptureCoordinator.Instance;
+            var reset = RequireInstanceSeam("ResetForTests", Type.EmptyTypes);
+            var arm = RequireInstanceSeam(
+                "ArmCaptureAvatarForTests",
+                new[] { typeof(GameObject), typeof(bool) });
+            var resetPlayReferences = RequireInstanceSeam(
+                "ResetCaptureReferencesForTests",
+                Type.EmptyTypes);
+
+            reset.Invoke(coordinator, null);
+            _sourceAvatar = new GeneratedHumanoidAcceptanceFixture(HumanoidTestProportions.Standard);
+            coordinator.SetTrackerProvider(new SixPointTrackerProvider(_sourceAvatar));
+            arm.Invoke(coordinator, new object[] { _sourceAvatar.Root, true });
+            resetPlayReferences.Invoke(coordinator, null);
+            ProcessedAvatarHooks.NotifyProcessingRootDiscovered(
+                _sourceAvatar.Root,
+                "PlayMode optional processor early root");
+
+            for (var frame = 0; frame < 4; frame++)
+            {
+                yield return null;
+            }
+
+            Assert.That(coordinator.Phase, Is.EqualTo(MotionTakeSessionPhase.Preparing),
+                "An armed optional processor must not expose the unprocessed clone as Ready.");
+            ProcessedAvatarHooks.NotifyDirectProcessedRoot(
+                _sourceAvatar.Root,
+                "PlayMode optional processor completion");
+
+            for (var frame = 0;
+                 frame < 8 && coordinator.Phase != MotionTakeSessionPhase.Ready;
+                 frame++)
+            {
+                yield return null;
+            }
+
+            Assert.That(coordinator.Phase, Is.EqualTo(MotionTakeSessionPhase.Ready),
+                "The exact processed root must become Ready after completion and two stable frames.");
         }
 
         [UnityTearDown]

@@ -44,7 +44,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
     }
 
     /// <summary>
-    /// Queues processed avatar roots as direct references, then waits for two unchanged player frames before
+    /// Queues capture avatar roots as direct references, then waits for two unchanged player frames before
     /// re-fetching Animator and humanoid bone references. No clone-name lookup is used.
     /// </summary>
     internal static class ProcessedAvatarQueue

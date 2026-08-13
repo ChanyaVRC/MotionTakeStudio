@@ -1,10 +1,10 @@
 # Motion Take Studio
 
-Motion Take Studio は、Unity の Play Mode で処理済み Humanoid アバターを記録し、
+Motion Take Studio は、Unity の Play Mode で Humanoid アバターを記録し、
 Scene View でポーズ補正を確認して、バージョン付きの Humanoid
 `AnimationClip` として保存する Unity Editor パッケージです。
 
-> 現在のバージョンは **0.1.0** です。実運用前に、下記の「現在の制限」と
+> 現在のバージョンは **0.1.1** です。実運用前に、下記の「現在の制限」と
 > [トラブルシューティング](Documentation~/Troubleshooting.md)を確認してください。
 
 ## 動作条件
@@ -12,11 +12,12 @@ Scene View でポーズ補正を確認して、バージョン付きの Humanoid
 - Unity 2022.3 以降
 - 有効な Humanoid Avatar を持つ、シーン上の `Animator`
 - Unity Animation Rigging 1.2.1（パッケージ依存関係として宣言済み）
-- 標準の **Prepare Play Capture** には NDMF と、有効な **Apply on Play** 設定が必要
+- NDMF は任意で、自動導入されません。NDMF と **Apply on Play** を安全に利用できる場合は
+  処理後の Avatar を収録し、利用できない場合は通常の Humanoid Clone を収録します。
 - 既定のトラッキングには、起動中の SteamVR と SteamVR Unity Plugin（OpenVR）が必要。
   `ITrackerPoseProvider` を差し替える場合、OpenVR は不要です。
-- VRChat SDK、Modular Avatar、VRCFury は任意です。NDMF と OpenVR も基本アセンブリから
-  Reflection で利用するためコンパイル時依存ではありませんが、上記の標準フロー要件は別です。
+- VRChat SDK、Modular Avatar、VRCFury、NDMF は任意です。NDMF と OpenVR は基本アセンブリから
+  Reflection で利用するため、コンパイル時・パッケージ依存はありません。
 
 ## インストールと起動
 
@@ -70,10 +71,10 @@ Scene View でポーズ補正を確認して、バージョン付きの Humanoid
 フレーム進行を確認する `BuildSoft.MotionTakeStudio.PlayMode.Tests` の 2 層です。
 **Window > General > Test Runner** で EditMode と PlayMode の両タブを個別に実行してください。
 
-Unity 2022.3.22f1 で、Editor suite は **87 / 87**、Runtime PlayMode suite は
-**2 / 2** の成功を確認しています。Editor suite の 87 件には、生成 Humanoid を使って実際に
-Play Mode へ入り、6 点 Capture、Review、左肘 Hint の 10 cm 補正、Validation、Clip の
-再生確認までを通す E2E テスト 1 件を含みます。
+Unity 2022.3.22f1 で、Editor suite は **95 / 95**、Runtime PlayMode suite は
+**2 / 2** の成功を確認しています。Editor suite には、生成 Humanoid を使って実際に
+Play Mode へ入り、NDMF なしの 6 点 Capture、Review、左肘 Hint の 10 cm 補正、Validation、Clip の
+再生確認までを通す E2E と、任意 Processor の完了通知ゲートを確認する E2E を含みます。
 
 埋め込みパッケージを含むプロジェクトルートでは、次の runner で両 assembly を逐次実行できます。
 
@@ -93,7 +94,7 @@ fullname があり、対象 assembly 自身で `total > 0`、`passed == total`�
 `"testables": ["com.buildsoft.motion-take-studio"]` も追加し、runner へ `-ProjectPath` を明示してください。
 詳しい GUI／CLI 手順は[導入・記録・レビューガイド](Documentation~/GettingStarted.md)にあります。
 
-この自動テストは、実機の SteamVR／OpenVR デバイス列挙や NDMF Apply on Play の処理結果までは
+この自動テストは、実機の SteamVR／OpenVR デバイス列挙や、任意の NDMF Apply on Play の処理結果までは
 保証しません。リリース前には、対応機器と実アバターを使った標準 Capture フローも別に確認してください。
 
 ## 現在の制限

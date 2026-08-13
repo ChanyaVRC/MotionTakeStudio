@@ -1,8 +1,8 @@
 {
   "name": "com.buildsoft.motion-take-studio",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "displayName": "Motion Take Studio",
-  "description": "Record processed Humanoid avatars in Play Mode, review tracking quality, apply full-body IK pose corrections, and bake non-destructive Animation Clips.",
+  "description": "Record Humanoid avatars in Play Mode with optional processed-avatar integration, review tracking quality, apply full-body IK pose corrections, and bake non-destructive Animation Clips.",
   "unity": "2022.3",
   "author": {
     "name": "BuildSoft",

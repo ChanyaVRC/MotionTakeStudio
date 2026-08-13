@@ -6,7 +6,7 @@ Motion Take Studio は、Play Mode にだけ存在する一時オブジェクト
 ```text
 OpenVR Reflection Provider / custom ITrackerPoseProvider
   -> タイムスタンプ付き TrackerFrame
-  -> 一時的な処理済み Humanoid + MotionCaptureRig
+  -> 一時的な Humanoid（任意の Avatar 処理後を含む）+ MotionCaptureRig
   -> Tracker IK HumanPose -> Automatic HumanPose
   -> append-only Recovery Journal
   -> Review / 非破壊 MotionEditRecipe
@@ -20,10 +20,11 @@ EditorWindow は `IMotionTakeStudioSession` にだけ依存し、標準実装は
 Error を遷移します。
 
 Prepare 時に選択したシーンオブジェクトを additive Scene へ複製し、セッション ID と元オブジェクトの
-`GlobalObjectId` を保持します。標準フローは Clone に NDMF `AvatarActivator` を追加し、NDMF の
-Apply on Play が有効であることを確認してから Play Mode へ入ります。この処理ゲートを準備できない場合は
-未処理 Clone を収録せず Prepare を失敗させます。Capture 対象は直接参照、または不活性な
-`MotionCaptureAvatarMarker` で識別し、名前や `(Clone)` 接尾辞には依存しません。
+`GlobalObjectId` を保持します。NDMF は任意です。NDMF Apply on Play と互換の完了通知を安全に利用できる
+場合だけ Clone に `AvatarActivator` を追加し、処理完了後の Root を使います。利用できない場合は通常の
+Humanoid Clone を使います。一度任意処理を開始した場合、完了前に通常 Clone へフォールバックしません。
+Capture 対象は直接参照、または不活性な `MotionCaptureAvatarMarker` で識別し、名前や `(Clone)`
+接尾辞には依存しません。
 
 NDMF や VRChat 側の処理が Animator を再生成する可能性があるため、Coordinator は同じ Animator と
 必要 Humanoid Bone が 2 Player Frame 連続で安定するまで待ち、参照を取り直してから Ready にします。
@@ -40,7 +41,7 @@ Generic Tracker は Ready 時のウィンドウまたは API からシリアル�
 永続設定アセットはありません。
 未設定時の自動ロールはデバイス順の暫定値です。
 
-`MotionCaptureRig` は Tracker を処理済み Humanoid へ適用し、Filtering、Root 補正、Foot Lock、
+`MotionCaptureRig` は Tracker を収録用 Humanoid へ適用し、Filtering、Root 補正、Foot Lock、
 Two-Bone IK を実行してから HumanPose をサンプルします。Manual Recipe の IK は Capture 後の
 `MotionTakePreviewDriver` が最後に適用します。
 
@@ -136,10 +137,10 @@ Reader は破損した最終行だけを無視でき、Header、Frame、Footer �
 Recovery 下の `Archived`、書き出しに成功した Pending Export は `Completed` フォルダーへ移します。
 
 Review 中は Capture、Correction Track、スクラブ位置を Scene 参照なしの
-`.review-checkpoint.json` へ原子的に保存します。Assembly Reload 後は処理済み Humanoid を再バインドし、
+`.review-checkpoint.json` へ原子的に保存します。Assembly Reload 後は収録用 Humanoid を再バインドし、
 Checkpoint から Review を再構築します。Save & Exit の Commit 後は Checkpoint を `Completed` へ移します。
 
-Recovery を操作する Editor API はありますが、0.1.0 に一覧・復元 UI はありません。
+Recovery を操作する Editor API はありますが、現行版に一覧・復元 UI はありません。
 
 ## Test topology と CI 契約
 
@@ -164,11 +165,12 @@ Runtime PlayMode 2 件の test fullname が対象 assembly 内に存在し、`Pa
 明示された `ProjectPath` は package の配置場所と独立して解決するため、project 外の local package
 からも同じ runner を利用できます。
 
-Unity 2022.3.22f1 での基準結果は Editor **87 / 87**、Runtime PlayMode **2 / 2** です。
-Editor 87 件のうち 1 件が、内部で Play Mode へ遷移する上記 E2E です。
+Unity 2022.3.22f1 での基準結果は Editor **95 / 95**、Runtime PlayMode **2 / 2** です。
+Editor suite には、内部で Play Mode へ遷移する NDMF なしの全経路 E2E と、任意 Processor の
+完了通知ゲート E2E を含みます。
 
 この 2 層は決定論的な自動回帰テストです。SteamVR／OpenVR の実デバイス列挙、実際の tracker role、
-NDMF Apply on Play、MA／VRCFury などによる Avatar の再生成は、接続機器と実アバターが必要なため
+任意の NDMF Apply on Play、MA／VRCFury などによる Avatar の再生成は、接続機器と実アバターが必要なため
 別の Integration lane です。自動テストの成功を実機 Capture の成功条件として扱わず、リリース候補では
 3／6／11 点と対象アバターの実機検証を追加します。
 
@@ -176,8 +178,8 @@ NDMF Apply on Play、MA／VRCFury などによる Avatar の再生成は、接�
 
 OpenVR、NDMF、VRChat SDK への直接参照は基本 Runtime / Editor Assembly に置きません。
 OpenVR は Reflection、Processed Avatar の通知は Hook / Queue、VRChat SDK 固有 Hook は Version Define
-付きの別 Editor Assembly に隔離しています。この「任意」はコンパイル時依存についての境界です。
-標準 Capture の実行時には NDMF Apply on Play が必須で、既定 Tracker Provider を使う場合は OpenVR も
-必要です。独自 Provider は OpenVR を置き換えられますが、NDMF の処理済み Avatar ゲートは置き換えません。
+付きの別 Editor Assembly に隔離しています。NDMF はコンパイル時・実行時とも任意で、利用できない場合は
+通常の Humanoid Clone を収録します。既定 Tracker Provider を使う場合は OpenVR が必要ですが、
+独自 Provider で置き換えられます。
 
 戻る: [README](../README.md) / [API・データモデル](APIReference.md)

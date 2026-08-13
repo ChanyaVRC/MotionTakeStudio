@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1] - 2026-08-13
+
+- Made NDMF Apply on Play an optional enhancement with no package dependency.
+- Capture now uses the ordinary stabilized Humanoid clone when optional processing cannot be armed.
+- An armed avatar processor must still report completion before the capture can become Ready.
+- Added PlayMode coverage for the NDMF-free Capture／Review／Correction／Bake path and the optional
+  processor completion gate. Unity 2022.3.22f1 passes Editor 95 / 95 and Runtime PlayMode 2 / 2.
+
 ## [0.1.0] - 2026-08-12
 
 - Added Play Mode Humanoid capture and recovery workflow.

@@ -146,16 +146,16 @@ namespace BuildSoft.MotionTakeStudio.Editor
             return rigApplied;
         }
 
-        internal static bool CanReportProcessedAvatarReady(bool ndmfAvailable, bool applyOnPlayEnabled)
-        {
-            return ndmfAvailable && applyOnPlayEnabled;
-        }
-
-        internal static bool CanQueueProcessedAvatar(
+        internal static bool CanAcceptCaptureRoot(
             bool processingArmed,
             bool completionConfirmed)
         {
-            return processingArmed && completionConfirmed;
+            return !processingArmed || completionConfirmed;
+        }
+
+        internal static bool CanAcceptProcessorCompletion(bool processingArmed)
+        {
+            return processingArmed;
         }
 
         internal static CaptureSamplePlan PlanCaptureSamples(
@@ -284,26 +284,28 @@ namespace BuildSoft.MotionTakeStudio.Editor
             Changed?.Invoke();
         }
 
-        internal void ArmProcessedAvatarForTests(GameObject processedRoot)
+        internal void ArmCaptureAvatarForTests(
+            GameObject captureRoot,
+            bool optionalProcessingArmed)
         {
             if (!Application.isPlaying)
             {
                 throw new InvalidOperationException(
-                    "The processed-avatar test seam can only be armed in Play Mode.");
+                    "The capture-avatar test seam can only be armed in Play Mode.");
             }
 
-            if (processedRoot == null)
+            if (captureRoot == null)
             {
-                throw new ArgumentNullException(nameof(processedRoot));
+                throw new ArgumentNullException(nameof(captureRoot));
             }
 
-            var animator = processedRoot.GetComponentInChildren<Animator>(true);
+            var animator = captureRoot.GetComponentInChildren<Animator>(true);
             if (animator == null || animator.avatar == null ||
                 !animator.avatar.isValid || !animator.avatar.isHuman || !animator.isHuman)
             {
                 throw new ArgumentException(
-                    "The processed root must contain an Animator with a valid Humanoid Avatar.",
-                    nameof(processedRoot));
+                    "The capture root must contain an Animator with a valid Humanoid Avatar.",
+                    nameof(captureRoot));
             }
 
             if (_trackerProvider == null || !_trackerProvider.IsAvailable)
@@ -322,13 +324,13 @@ namespace BuildSoft.MotionTakeStudio.Editor
 
             var sessionId = Guid.NewGuid().ToString("N");
             _testOwnedSessionId = sessionId;
-            var sourceGlobalId = GlobalObjectId.GetGlobalObjectIdSlow(processedRoot).ToString();
+            var sourceGlobalId = GlobalObjectId.GetGlobalObjectIdSlow(captureRoot).ToString();
             SessionState.EraseString(ReviewCheckpointPathKey);
             SessionState.SetBool(ArmedKey, true);
             SessionState.SetString(SourceGlobalIdKey, sourceGlobalId);
             SessionState.SetString(SessionIdKey, sessionId);
-            SessionState.SetString(SourceNameKey, processedRoot.name);
-            SessionState.SetBool(NdmfApplyOnPlayArmedKey, true);
+            SessionState.SetString(SourceNameKey, captureRoot.name);
+            SessionState.SetBool(NdmfApplyOnPlayArmedKey, optionalProcessingArmed);
             SessionState.SetBool(ProcessedAvatarConfirmedKey, false);
 
             _captureScene = SceneManager.CreateScene(
@@ -344,14 +346,22 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 marker.Configure(sessionId, sourceGlobalId);
                 _driverRoot.AddComponent<MotionCapturePlayerDriver>();
 
-                processedRoot.transform.SetParent(null, true);
-                SceneManager.MoveGameObjectToScene(processedRoot, _captureScene);
-                processedRoot.transform.SetParent(_driverRoot.transform, true);
-                _captureRoot = processedRoot;
+                captureRoot.transform.SetParent(null, true);
+                SceneManager.MoveGameObjectToScene(captureRoot, _captureScene);
+                captureRoot.transform.SetParent(_driverRoot.transform, true);
+                _captureRoot = captureRoot;
 
                 SetPhase(
                     MotionTakeSessionPhase.Preparing,
-                    "Test processed Humanoid is armed; waiting for two stable player frames.");
+                    optionalProcessingArmed
+                        ? "Test Humanoid is waiting for optional avatar processing."
+                        : "Test Humanoid is waiting for two stable player frames without optional processing.");
+                if (!optionalProcessingArmed)
+                {
+                    ProcessedAvatarQueue.Enqueue(
+                        _captureRoot,
+                        "PlayMode test standard Humanoid clone");
+                }
             }
             catch
             {
@@ -359,6 +369,21 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 TearDownTransientObjects(true);
                 throw;
             }
+        }
+
+        internal void ResetCaptureReferencesForTests()
+        {
+            if (!Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Capture references can only be reset for tests in Play Mode.");
+            }
+
+            ProcessedAvatarQueue.Reset();
+            ResetPlayReferencesForReload();
+            SetPhase(
+                MotionTakeSessionPhase.Preparing,
+                "Test capture references were reset before an optional processor callback.");
         }
 
         internal void ResetForTests()
@@ -481,7 +506,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
         {
             if (_phase != MotionTakeSessionPhase.Ready || _binding == null)
             {
-                throw new InvalidOperationException("The processed Humanoid clone is not ready.");
+                throw new InvalidOperationException("The capture Humanoid clone is not ready.");
             }
 
             if (CaptureConflictDetector.TryFindActiveConflict(out var conflict))
@@ -920,9 +945,21 @@ namespace BuildSoft.MotionTakeStudio.Editor
             Singleton.SamplePlayerFrame();
         }
 
+        internal static bool NotifyProcessingRoot(GameObject root, string source)
+        {
+            if (Singleton == null ||
+                !CanAcceptProcessorCompletion(
+                    SessionState.GetBool(NdmfApplyOnPlayArmedKey, false)))
+            {
+                return false;
+            }
+
+            return Singleton.TryRegisterProcessingRoot(root, source);
+        }
+
         internal static void NotifyProcessedRoot(GameObject root, string source)
         {
-            if (Singleton == null || !Singleton.IsExpectedCaptureRoot(root))
+            if (!NotifyProcessingRoot(root, source))
             {
                 return;
             }
@@ -1033,18 +1070,25 @@ namespace BuildSoft.MotionTakeStudio.Editor
             {
                 _driverRoot.AddComponent<MotionCapturePlayerDriver>();
             }
-            SetPhase(
-                MotionTakeSessionPhase.Preparing,
-                "Additive-scene clone entered Play Mode; waiting for the processed Animator to settle.");
-            if (!SessionState.GetBool(NdmfApplyOnPlayArmedKey, false))
+            var processingArmed = SessionState.GetBool(NdmfApplyOnPlayArmedKey, false);
+            if (processingArmed)
             {
-                Fail("NDMF Apply on Play was not armed; the unprocessed clone cannot enter capture Ready state.");
+                SetPhase(
+                    MotionTakeSessionPhase.Preparing,
+                    "Additive-scene clone entered Play Mode; waiting for optional avatar processing to complete.");
+                // Installing an optional processor proves only that processing was armed.
+                // Its callback enqueues the exact processed root after completion.
+                Changed?.Invoke();
                 return;
             }
 
-            // The NDMF/VRChat callback must enqueue the exact processed root. Installing an
-            // activator proves only that processing was armed, not that processing completed.
-            Changed?.Invoke();
+            SetPhase(
+                MotionTakeSessionPhase.Preparing,
+                "Additive-scene Humanoid entered Play Mode without optional avatar processing; " +
+                "waiting for the Animator and bones to settle.");
+            ProcessedAvatarQueue.Enqueue(
+                _captureRoot,
+                "standard Play Mode Humanoid clone");
         }
 
         private void TryResumeAfterAssemblyReload()
@@ -1065,17 +1109,15 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 _driverRoot.AddComponent<MotionCapturePlayerDriver>();
             }
 
-            if (!SessionState.GetBool(NdmfApplyOnPlayArmedKey, false))
+            var processingArmed = SessionState.GetBool(NdmfApplyOnPlayArmedKey, false);
+            var completionConfirmed = SessionState.GetBool(ProcessedAvatarConfirmedKey, false);
+            if (CanAcceptCaptureRoot(processingArmed, completionConfirmed))
             {
-                Fail("Review reload could not verify the NDMF Apply on Play processing gate.");
-                return;
-            }
-
-            if (CanQueueProcessedAvatar(
-                    SessionState.GetBool(NdmfApplyOnPlayArmedKey, false),
-                    SessionState.GetBool(ProcessedAvatarConfirmedKey, false)))
-            {
-                ProcessedAvatarQueue.Enqueue(_captureRoot, "assembly reload processed avatar rebind");
+                ProcessedAvatarQueue.Enqueue(
+                    _captureRoot,
+                    processingArmed
+                        ? "assembly reload processed avatar rebind"
+                        : "assembly reload standard Humanoid rebind");
             }
         }
 
@@ -1115,15 +1157,18 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 SessionState.SetBool(NdmfApplyOnPlayArmedKey, ndmfArmed);
                 if (ndmfArmed)
                 {
-                    _statusMessage = "NDMF Apply on Play is armed on the additive-scene clone.";
+                    _statusMessage =
+                        "Optional NDMF Apply on Play processing is armed on the additive-scene clone.";
                 }
                 else
                 {
-                    SessionState.SetBool(ArmedKey, false);
-                    throw new InvalidOperationException(
-                        string.IsNullOrEmpty(processingWarning)
-                            ? "NDMF with Apply on Play enabled is required to create the processed capture clone."
-                            : processingWarning);
+                    _statusMessage =
+                        "Optional avatar processing is not active. " +
+                        "The standard Play Mode Humanoid clone will be captured.";
+                    if (!string.IsNullOrEmpty(processingWarning))
+                    {
+                        _statusMessage += " " + processingWarning;
+                    }
                 }
 
                 _captureRoot.SetActive(true);
@@ -1223,12 +1268,12 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 return;
             }
 
-            if (!CanQueueProcessedAvatar(
+            if (!CanAcceptCaptureRoot(
                     SessionState.GetBool(NdmfApplyOnPlayArmedKey, false),
                     SessionState.GetBool(ProcessedAvatarConfirmedKey, false)))
             {
                 binding.Dispose();
-                Fail("The clone stabilized without an active NDMF Apply on Play processing gate.");
+                Fail("The clone stabilized before the armed optional avatar processor reported completion.");
                 return;
             }
 
@@ -1291,7 +1336,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
 
             if (_binding.Animator == null || _binding.Root == null)
             {
-                Fail("The processed capture avatar was replaced or destroyed; recording stopped safely.");
+                Fail("The capture avatar was replaced or destroyed; recording stopped safely.");
                 return;
             }
 
@@ -1802,6 +1847,45 @@ namespace BuildSoft.MotionTakeStudio.Editor
                    root.transform.IsChildOf(_captureRoot.transform) ||
                    _captureRoot.transform.IsChildOf(root.transform) ||
                    HasMatchingRuntimeMarker(root);
+        }
+
+        private bool TryRegisterProcessingRoot(GameObject root, string source)
+        {
+            if (root == null || !Application.isPlaying ||
+                !SessionState.GetBool(ArmedKey, false) ||
+                _phase == MotionTakeSessionPhase.Recording ||
+                _phase == MotionTakeSessionPhase.Reviewing ||
+                _phase == MotionTakeSessionPhase.Saving)
+            {
+                return false;
+            }
+
+            if (_captureRoot != null)
+            {
+                return IsExpectedCaptureRoot(root);
+            }
+
+            var marker = root.GetComponentInParent<MotionCaptureAvatarMarker>(true);
+            var expectedSession = SessionState.GetString(SessionIdKey, string.Empty);
+            if (marker == null || string.IsNullOrEmpty(expectedSession) ||
+                marker.SessionId != expectedSession)
+            {
+                return false;
+            }
+
+            var scene = marker.gameObject.scene;
+            if (!scene.IsValid() || !scene.isLoaded || root.scene.handle != scene.handle)
+            {
+                return false;
+            }
+
+            _driverRoot = marker.gameObject;
+            _captureRoot = root;
+            _captureScene = scene;
+            SetPhase(
+                MotionTakeSessionPhase.Preparing,
+                $"{source} identified the optional-processing root; waiting for completion.");
+            return true;
         }
 
         private void AddRuntimeMarker(GameObject root)
