@@ -285,7 +285,7 @@ failed／skip／inconclusive、対象 assembly 不一致、対象 assembly の�
 
 runner は同一 project に対して EditMode と PlayMode を別の Unity process で逐次実行し、各 process の
 exit code、timeout、assembly load／compile error、NUnit XML を検査します。run と対象 assembly の
-`total` が一致し、対象 assembly 自身の `total > 0`、`passed == total`、
+`total` が一致し、EditModeは95件以上、PlayModeは2件以上で、対象 assembly 自身が`passed == total`、
 `failed == skipped == inconclusive == 0`、`result == Passed` を満たす必要があります。さらに次の
 test fullname が XML 内で `Passed` でなければ失敗します。
 
@@ -302,35 +302,133 @@ XML と `.log` を artifact として保存してください。
 コマンドへ `-quit` や `-runSynchronously` を追加しないでください。`-runTests` は完了時に終了し、
 `-runSynchronously` は複数 frame を使う `[UnityTest]` を対象外にするためです。
 
-### GitHub Actions
+### GitHub Actions と Unity Build Automation v2
 
 `.github/workflows/unity-tests.yml` は次の2段階です。
 
-1. Pull Requestでは、Unity資格情報を渡さずrunnerのXML判定とworkflow構成だけを検証します。
-2. `main`へのpush、`main`からの手動実行、Releaseでは、`unity-ci` Environmentを使ってGameCIを実行します。
+1. Pull RequestではSecretを渡さず、runnerのXML判定とworkflow構成だけを検証します。Unity Build
+   Automation（UBA）は呼び出しません。
+2. 保護された`main`へのpush、`main`からの手動実行、Releaseでは、`unity-ci` Environmentの
+   Unity Cloudサービスアカウントを使い、`.github/scripts/Invoke-UnityBuildAutomation.ps1`から
+   UBA v2 buildを開始します。
 
-そのためPR上の`CI Contract`成功はUnityテスト成功を意味しません。merge後の`main`で`Unity CI Gate`を必ず確認し、
-失敗時はReleaseせず修正PRを作成します。Release workflow自身もUnity suiteを再実行します。
+UBAのAuto-buildは無効です。GitHub workflowだけを入口にすることで、同じpushに対する二重buildを防ぎ、
+Release時には同じ`main` commitを意図的に再検証できます。bridgeは要求した完全なGit commit SHAとUBAが
+checkoutしたSHAを照合し、過去の成功buildやbranch headが異なるbuildを再利用しません。Pull Request上の
+`CI Contract`成功はUnityテスト成功を意味しないため、merge後の`main`で`Unity CI Gate`を確認し、失敗時は
+Releaseせず修正PRを作成します。Release workflow自身も同じUnity suiteを再実行します。
 
-Unity本体はPackage Modeの一時Projectへ
-`Packages/com.buildsoft.motion-take-studio`だけを導入します。これにより、VRChat SDK／NDMFのない状態で
-EditorとPlayModeを実行し、偶発的な必須依存を検出します。Unity 2022.3.22f1のDocker imageと使用Actionは
-digest／commit SHAへ固定しています。結果XMLとlogは14日間artifactとして保存されます。
+#### Unityバージョンの役割を分ける
 
-`unity-ci` Environmentは`main`だけを許可し、次のSecretを設定します。値はworkflowやログへ書かないでください。
+| 対象 | Unity | 意味 |
+|---|---|---|
+| 配布package | 2022.3 | packageの対応範囲。利用側projectを40f1へ固定しない |
+| ローカル基準 | 2022.3.22f1 | Editor 95 / 95、Runtime PlayMode 2 / 2を確認した環境 |
+| standalone UBA CI | 2022.3.40f1 | UBAで22f1が廃止対象になったため使用するcloud test環境 |
 
-- Personal: `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`
-- Pro: `UNITY_SERIAL`、`UNITY_EMAIL`、`UNITY_PASSWORD`
+Unityの2026年dependency更新では、2022.3.22f1を含む旧patchがUBAの削除対象になり、2022.3.40f1は
+利用可能な例外として残ります。このためcloud targetではAuto Detectを使わず40f1を明示します。この変更は
+packageのUnity 2022.3互換性や、VRChat projectで使用するEditorを変更するものではありません。詳細は
+[Unityのdependency deprecation告知](https://discussions.unity.com/t/unity-devops-build-automation-2026-dependency-deprecation-cycle/1724029)
+を参照してください。
 
-Personalの`UNITY_LICENSE`はUnity HubでPersonal licenseを有効化した端末の`.ulf`ファイル全体を登録します。
-Windowsの既定場所は`C:\ProgramData\Unity\Unity_lic.ulf`です。詳しい取得場所とPro設定は
-[GameCI Activation](https://game.ci/docs/github/activation/)を参照してください。ライセンス更新後はSecretも
-更新し、メールアドレスやパスワードをGit、PR、issue、workflow logへ貼らないでください。
+#### UBA projectとbuild targetを準備する
 
-GameCIへはPull Requestのコードを渡さず、`pull_request_target`も使用しません。fork由来を含む未信頼コードへ
-Unityアカウント資格情報を公開しないためです。`.github/workflows/release.yml`も同じreusable workflowを呼び、
-Unity CI Gateが成功した`main`以外からはpackageを公開できません。
-ローカルrunnerとCI契約テストにはPowerShell 7以降の`pwsh`が必要です。
+1. [Unity Dashboard](https://cloud.unity.com/)で専用organizationを選び、`Motion Take Studio CI`用の
+   Cloud projectを作成してDevOps／Build Automationを有効にします。
+2. Source Controlへ`https://github.com/ChanyaVRC/MotionTakeStudio`を読み取り可能なGit repositoryとして
+   接続します。Auto-buildを使わないためWebhook書き込み権限は不要です。
+3. Build AutomationのConfigurationを次の値で作成します。
+
+| 設定 | 値 |
+|---|---|
+| Branch | `main` |
+| Project subfolder | 空欄（repository root） |
+| Platform | Windows Desktop 64-bit |
+| Unity version | `2022.3.40f1`を明示。Auto DetectはOff |
+| Builder | サポート中のWindows OS、Machine type `Micro` |
+| Auto-build／Schedule | Off |
+| Player export | Off（`settings.advanced.unity.playerExporter.export=false`） |
+| Tests | Unit tests、EditMode、PlayMode、`Mark build as failed if any test fails`をすべてOn |
+
+4. Configurationを保存し、表示されたorganization ID、Cloud project ID、build target IDを控えます。
+   [UBA build設定](https://docs.unity.com/en-us/build-automation/basic-build-configuration/overview)と
+   [unit test設定](https://docs.unity.com/en-us/build-automation/reference/unit-tests)も参照してください。
+
+Player exportを無効にしたunit-test-only／Content-only targetなので、Playerやsceneを作らなくても両test suiteを
+実行できます。CI用に空sceneや配布対象外Playerを追加しないでください。
+
+#### サービスアカウントと`unity-ci` Environmentを準備する
+
+1. Unity Dashboardの**Administration > Service Accounts**で、このrepository専用のサービスアカウントを
+   作成します。
+2. 対象Cloud projectだけに、UBA v2でtarget設定読取、build開始、status／test artifact読取、timeout時の
+   cancelを行える最小のBuild Automation／Automation project roleを、現在のDashboard表示に従って
+   付与します。organization全体の管理roleは付けません。
+3. **Add key**でKey IDとSecret keyを1組作り、その場で安全に保存します。Secret keyは再表示されません。
+   手順は[Unity公式のservice accountガイド](https://docs.unity.com/en-us/cloud/accounts/create-service-account)
+   を参照してください。
+4. GitHubの**Settings > Environments**に`unity-ci`を作成し、deployment branchを`main`だけに制限します。
+   必要ならrequired reviewerも設定します。操作は
+   [GitHub公式のEnvironment手順](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+   を参照してください。
+5. `unity-ci`へ次を登録します。
+
+| 種別 | 名前 | 値 |
+|---|---|---|
+| Environment Secret | `UNITY_UBA_KEY_ID` | サービスアカウントのKey ID |
+| Environment Secret | `UNITY_UBA_SECRET_KEY` | 同じkey pairのSecret key |
+| Environment Variable | `UNITY_UBA_ORG_ID` | Unity organization ID |
+| Environment Variable | `UNITY_UBA_PROJECT_ID` | Cloud project ID |
+| Environment Variable | `UNITY_UBA_BUILD_TARGET_ID` | `main`用Windows Micro target ID |
+
+Unity accountのemail、password、Editor license、ULF、serialは登録しません。keyをrotateするときは新しいpairを
+作成し、2つのEnvironment Secretを同時に更新して`main`で成功を確認してから古いkeyを無効化します。
+
+#### exact-SHA bridgeとNUnit XMLを検証する
+
+workflowが利用する外部GitHub Actionは、tagではなく40桁の完全なcommit SHAへ固定します。repository所有の
+`Invoke-UnityBuildAutomation.ps1`はKey ID／Secret keyからHTTP Basic認証headerをメモリ内で生成し、
+UBA v2へbuildを要求します。認証headerや元のkey pairはlog／artifactへ保存しません。terminal statusまで待機して、要求した
+`GITHUB_SHA`とbuildのSCM SHAが完全一致した場合だけtest artifactを受け入れます。API timeout、失敗／cancel、
+SHA不一致、artifact欠落はいずれもfail closedです。
+
+取得後は、UBAのbuild statusだけを信頼せず、package runnerで各XMLを独立して再検証します。
+
+```powershell
+pwsh -File "Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1" `
+  -ValidateResultsOnly -ValidationMode EditMode `
+  -ResultPath "artifacts/editmode-results.xml"
+
+pwsh -File "Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1" `
+  -ValidateResultsOnly -ValidationMode PlayMode `
+  -ResultPath "artifacts/playmode-results.xml"
+```
+
+XMLが存在してwell-formedであり、対象assemblyを含み、runとassemblyの件数が一致し、EditModeは95件以上、
+PlayModeは2件以上、`passed == total`、`failed == skipped == inconclusive == 0`、`result == Passed`を満たし、必須E2E fullnameが
+すべて`Passed`でなければgateは失敗します。これにより、UBA側の表示がSuccessでも、0件run、別assemblyの
+結果、途中までのXML、古いartifactをRelease成功として扱いません。
+
+未信頼のPull RequestへサービスアカウントSecretを渡す`pull_request_target`や、PR SHAをcheckoutする
+特権workflowは使用しません。`.github/workflows/release.yml`も同じreusable workflowを呼び、
+`Unity CI Gate`が成功した`main`以外からはpackageを公開できません。ローカルrunner、bridge、CI契約テストには
+PowerShell 7以降の`pwsh`が必要です。
+
+#### 無料枠と支出上限を設定する
+
+2026年のUnity DevOps無料枠には、organizationごとに月200分のWindows Micro buildが含まれます。料金と
+無料枠は変更されるため、[Unityの最新pricing](https://unity.com/products/pricing-updates)とDashboardの
+Build Consumptionを基準にしてください。
+
+1. **Build Automation > Settings > Build Consumption**でConcurrency capを`1`にします。
+2. **Build minutes monthly cap**を有効にし、UIが許可する場合は追加支出を`$0`へ設定します。`$0`を
+   受け付けない場合は許容できる最小額を設定し、同額未満にMonthly cap reminderを置きます。
+3. `main` targetのAuto-buildとScheduleがOffであることを再確認します。
+4. Test XML／logに必要な最短のartifact retentionを設定し、初回clean build後に実際の消費分数を確認します。
+
+設定方法は[UBAのconsumption cost管理](https://docs.unity.com/en-us/build-automation/manage-consumption-costs)を
+参照してください。clean build、手動Replay、Release前の再検証もbuild分数を消費します。
 
 ### 実機 Integration は別に確認する
 

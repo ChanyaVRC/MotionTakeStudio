@@ -3,7 +3,17 @@
 ## [0.1.1] - 2026-08-13
 
 - Added SHA-pinned GitHub Actions automation. Pull requests run secret-free CI contract tests; protected `main`
-  and releases run the package in GameCI without VRChat SDK or NDMF, validate all NUnit results, and archive logs.
+  and releases use a repository-owned bridge to invoke Unity Build Automation v2 and archive its test results.
+- Replaced hosted Unity license activation with a least-privilege Unity Cloud service account. Protected jobs read
+  `UNITY_UBA_KEY_ID` and `UNITY_UBA_SECRET_KEY` only from the `unity-ci` Environment, while organization, project,
+  and build-target IDs are non-secret Environment variables.
+- Added repository support for an API-controlled, unit-test-only Windows Micro target on Unity 2022.3.40f1. The
+  documented target contract keeps Auto-build and player export disabled, enables both EditMode and PlayMode, and
+  fails the build on any test failure. No Player or scene build is required. The bridge accepts only the requested
+  GitHub commit SHA and revalidates both NUnit XML files with the package runner before the release gate can pass.
+- Kept the package compatible with Unity 2022.3 projects. The standalone CI target uses 2022.3.40f1 because
+  Unity Build Automation marks 2022.3.22f1 for removal; the verified 22f1 baseline remains Editor 95 / 95 and
+  PlayMode 2 / 2.
 - Made NDMF Apply on Play an optional enhancement with no package dependency.
 - Capture now uses the ordinary stabilized Humanoid clone when optional processing cannot be armed.
 - An armed avatar processor must still report completion before the capture can become Ready.
