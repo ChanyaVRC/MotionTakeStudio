@@ -30,6 +30,7 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
         private GeneratedHumanoidAcceptanceFixture _playbackAvatar;
         private AnimationClip _correctedClip;
         private PlayableGraph _playbackGraph;
+        private double _captureTime;
 
         [UnityTest]
         public IEnumerator CaptureReviewElbowCorrectionValidationAndBake_RoundTripsAcrossPlayerFrames()
@@ -47,6 +48,8 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
                 Type.EmptyTypes);
 
             reset.Invoke(coordinator, null);
+            _captureTime = 100d;
+            coordinator.SetRealtimeProviderForTests(ReadCaptureTime);
             _sourceAvatar = new GeneratedHumanoidAcceptanceFixture(HumanoidTestProportions.Standard);
             var reachablePose = _sourceAvatar.CaptureHumanPose();
             SetMuscle(reachablePose.muscles, "Left Forearm Stretch", 0.35f);
@@ -65,9 +68,12 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             Assert.That(coordinator.Phase, Is.EqualTo(MotionTakeSessionPhase.Ready),
                 "A generated Humanoid must stabilize on real player frames without NDMF.");
             coordinator.BeginRecording();
+            System.Threading.Thread.Sleep(200);
+            yield return null;
             for (var frame = 0; frame < 12 && coordinator.FrameCount < 5; frame++)
             {
-                yield return new WaitForSecondsRealtime(1f / FrameRate);
+                _captureTime += 1d / FrameRate;
+                yield return null;
             }
 
             Assert.That(coordinator.FrameCount, Is.GreaterThanOrEqualTo(3),
@@ -98,12 +104,17 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             coordinator.Revalidate();
             coordinator.ScrubToFrame(correctionFrame);
 
-            Assert.That(coordinator.ValidationIssues.Any(issue =>
+            var blockingIssues = coordinator.ValidationIssues.Where(issue =>
                     issue.Severity == MotionTakeValidationSeverity.Error ||
                     issue.Kind == MotionTakeValidationKind.NonFinitePose ||
-                    issue.Kind == MotionTakeValidationKind.TrackingGap),
-                Is.False,
-                "The corrected full take must remain finite and fully tracked.");
+                    issue.Kind == MotionTakeValidationKind.TrackingGap)
+                .ToArray();
+            Assert.That(
+                blockingIssues,
+                Is.Empty,
+                "The corrected full take must remain finite and fully tracked. " +
+                string.Join(" | ", blockingIssues.Select(issue =>
+                    $"{issue.Kind}/{issue.Severity} frame {issue.Frame}-{issue.EndFrame}: {issue.Message}")));
             Assert.That(coordinator.OverlayPoseSource.TryGetSolvedTargetPose(
                     MotionTakeOverlayFlags.Manual,
                     PoseTarget.LeftHand,
@@ -305,6 +316,11 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
                     ? new float[HumanTrait.MuscleCount]
                     : (float[])frame.muscles.Clone()
             };
+        }
+
+        private double ReadCaptureTime()
+        {
+            return _captureTime;
         }
 
         private static void SetMuscle(float[] muscles, string name, float value)
