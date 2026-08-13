@@ -76,6 +76,10 @@ Unity 2022.3.22f1 で、Editor suite は **95 / 95**、Runtime PlayMode suite �
 Play Mode へ入り、NDMF なしの 6 点 Capture、Review、左肘 Hint の 10 cm 補正、Validation、Clip の
 再生確認までを通す E2E と、任意 Processor の完了通知ゲートを確認する E2E を含みます。
 
+パッケージの対応範囲はUnity 2022.3のままです。standalone repositoryのcloud CIだけは、
+Unity Build Automationで2022.3.22f1が廃止対象になったため2022.3.40f1を明示使用します。これは利用側projectの
+最低／推奨Editorを40f1へ変更するものではなく、上記95件／2件は22f1で確認した基準値です。
+
 埋め込みパッケージを含むプロジェクトルートでは、次の runner で両 assembly を逐次実行できます。
 
 ```powershell
@@ -85,7 +89,7 @@ pwsh -File "Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudi
 [テスト runner](Tools~/Run-MotionTakeStudioTests.ps1)は Unity を起動する前に自身の XML 契約を
 自己テストし、EditMode と PlayMode を `-nographics` で逐次実行します。各 Unity process の timeout は
 既定 15 分です。Unity の exit code に加え、各 NUnit XML に対象 assembly と必須 Integration test の
-fullname があり、対象 assembly 自身で `total > 0`、`passed == total`、
+fullname があり、EditModeは95件以上、PlayModeは2件以上で、対象 assembly 自身が`passed == total`、
 `failed == skipped == inconclusive == 0`、`result == Passed`、かつ run と assembly の `total` が
 一致することを検査します。そのため、0 件 run、一部 skip、別 assembly の混在、必須 E2E の未実行は
 成功扱いになりません。
@@ -95,9 +99,13 @@ fullname があり、対象 assembly 自身で `total > 0`、`passed == total`�
 詳しい GUI／CLI 手順は[導入・記録・レビューガイド](Documentation~/GettingStarted.md)にあります。
 
 GitHub ActionsではPull Requestに対してSecret不要のrunner／workflow契約だけを検証し、`main`へのpushと
-ReleaseではGameCI Package Modeを使って両Unity suiteを実行します。一時Projectへこのpackageだけを導入するため、
-VRChat SDKとNDMFがない状態も継続的に検証されます。Unity結果が0件、skip、inconclusive、基準件数未満、
-必須E2E欠落の場合はReleaseも失敗します。
+ReleaseのworkflowはUnity Build Automation v2のWindows Micro targetで両Unity suiteを実行する構成です。targetは
+Auto-buildとplayer exportを無効にしたunit-test-only／Content-only構成で、full commit SHAへ固定したGitHub
+workflowだけがbuildを開始します。取得したEditMode／
+PlayMode XMLは上記runnerの`-ValidateResultsOnly`で再検証され、0件、skip、inconclusive、assembly不一致、
+必須E2E欠落、要求SHAとbuild SHAの不一致があればReleaseも失敗します。GitHubへUnity accountのlogin、
+password、licenseファイルは保存しません。詳細は
+[導入・記録・レビューガイド](Documentation~/GettingStarted.md#github-actions-と-unity-build-automation-v2)を参照してください。
 
 この自動テストは、実機の SteamVR／OpenVR デバイス列挙や、任意の NDMF Apply on Play の処理結果までは
 保証しません。リリース前には、対応機器と実アバターを使った標準 Capture フローも別に確認してください。

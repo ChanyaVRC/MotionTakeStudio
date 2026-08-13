@@ -159,7 +159,7 @@ Recovery を操作する Editor API はありますが、現行版に一覧・�
 PlayMode を assembly 名で絞り、`-nographics` で逐次実行します。runner 自身の XML fixture テストを
 Unity 起動前に通し、Unity Test Framework の process exit code だけを CI の合否にしません。
 各 Unity process は既定 15 分で timeout します。各 NUnit XML の run `total` と対象 assembly の
-`total` を一致させ、対象 assembly 自身で `total > 0`、`passed == total`、
+`total` を一致させ、EditModeは95件以上、PlayModeは2件以上で、対象 assembly 自身が`passed == total`、
 `failed == skipped == inconclusive == 0`、`result == Passed` を契約にします。さらに Editor E2E と
 Runtime PlayMode 2 件の test fullname が対象 assembly 内に存在し、`Passed` であることを確認します。
 明示された `ProjectPath` は package の配置場所と独立して解決するため、project 外の local package
@@ -169,36 +169,54 @@ Unity 2022.3.22f1 での基準結果は Editor **95 / 95**、Runtime PlayMode **
 Editor suite には、内部で Play Mode へ遷移する NDMF なしの全経路 E2E と、任意 Processor の
 完了通知ゲート E2E を含みます。
 
-GitHub Actionsの信頼境界は2段階です。Pull RequestではSecret不要のCI契約だけを実行し、Unityや
-Dockerは起動しません。保護された`main`とReleaseだけが、専用Unity CIアカウントの
-`UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`を`unity-ci` Environmentから取得します。
-[GitHub Environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)の
-deployment branch制限とSecret公開条件が通るまで、Unity jobはこれらを参照できません。repository側でも
-`main`をbranch protectionで保護します。
+GitHub Actionsの信頼境界は2段階です。Pull RequestではSecret不要のCI契約だけを実行し、UBAは
+呼び出しません。保護された`main`とReleaseだけが、`unity-ci` Environmentの
+`UNITY_UBA_KEY_ID`と`UNITY_UBA_SECRET_KEY`を取得します。organization、project、build targetのIDは
+同Environmentの`UNITY_UBA_ORG_ID`、`UNITY_UBA_PROJECT_ID`、`UNITY_UBA_BUILD_TARGET_ID`という
+非Secret変数です。[GitHub Environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)の
+deployment branch制限が通るまで、特権jobはSecretを参照できません。repository側でも`main`を
+branch protectionで保護します。
 
-信頼済みhost wrapperはULFの`DeveloperData`から`UNITY_SERIAL`を導出し、raw ULF自体をcontainerへ
-渡しません。Dockerはargv配列で起動し、資格情報は値をcommand lineへ展開せず`--env NAME`で
-名前だけを指定します。完全なserialとUnityが表示する末尾`XXXX`形式の両方をGitHub log maskへ
-登録します。同一の固定digestのGameCI container内でonline activation、test、license
-returnを行う点は[GameCI Test Runner](https://game.ci/docs/github/test-runner/)の標準的なtrust modelと同じです。
-資格情報はactivation／returnには必要であり、
-host runnerとそれらのprocessに対する信頼は残ります。
+```mermaid
+flowchart LR
+    PR["Pull Request"] --> Contract["Secret-free CI Contract"]
+    Main["Protected main / Release"] --> Env["unity-ci Environment"]
+    Env --> Bridge["Exact-SHA GitHub bridge"]
+    Bridge --> UBA["UBA v2 / Windows Micro / Unity 2022.3.40f1"]
+    UBA --> XML["EditMode + PlayMode NUnit XML"]
+    XML --> Validator["Strict package validator"]
+    Validator --> Gate["Unity CI Gate"]
+```
 
-追加したsecure `run_steps` は、test用子processを開始する前に`UNITY_LICENSE`、`UNITY_EMAIL`、
-`UNITY_PASSWORD`、`UNITY_SERIAL`をenvironmentから削除します。activationとreturnのUnity launcherは
-stdout／stderrを抑止し、一時logの内容もworkflow logへ転記しません。これはテストコードと
-偶発的なlog出力への露出面を狭める追加対策であり、container全体を秘密から切り離すものではありません。
+Unity Cloudサービスアカウントには、対象projectのtarget設定読取、build開始、status／artifact読取、timeout時の
+cancelに必要な最小roleだけを、現在のDashboard表示に従って付与します。repository所有の
+`.github/scripts/Invoke-UnityBuildAutomation.ps1`がkey pairからHTTP Basic認証headerをメモリ内で生成し、
+UBA v2を呼び出します。認証headerや元のkey pairはlog／artifactへ保存しません。Unity accountのemail、password、
+Editor license、ULF、serialはGitHubへ保存しません。外部GitHub
+Actionはtagではなく40桁の完全なcommit SHAへ固定します。未信頼PRへSecretを渡す
+`pull_request_target`や、PR SHAをcheckoutする特権workflowは使用しません。
 
-`cancel-in-progress: false`により同じconcurrency groupの新しいrunは実行中jobを自動キャンセルせず、
-host／container双方のhandled signalでは実行中の子processを停止してlicense returnを試みます。返却は
-exit codeだけでなく成功logまたはlocal license artifactの削除を確認します。ただし強制キャンセル、runner喪失、process killでは
-cleanupが完了する保証はなく、専用アカウントのseatを手動回復する場合があります。
+UBA targetはbranch `main`、Windows Micro、Unity 2022.3.40f1、EditMode／PlayMode、test失敗時build失敗で
+固定します。Auto-buildとScheduleはOffです。さらにplayer exportを
+`settings.advanced.unity.playerExporter.export=false`へ設定したunit-test-only／Content-only targetとし、
+Playerやscene buildをCI成功条件にしません。GitHub bridgeだけがbuildを開始するため、push webhookによる
+二重実行を避け、Releaseでは同じ`main` commitを明示的に再検証できます。
 
-GameCI Package Modeの一時ProjectにはVRChat SDK／NDMFを導入しません。NUnit XMLはローカルrunnerと
-同じcontractで再検証し、`Unity CI Gate`をRelease jobの必須依存にします。Unity資格情報を未信頼PRへ渡す
-`pull_request_target`や、PR SHAをcheckoutする特権workflowは使用しません。PR時点ではUnity回帰を検出せず、
-merge後のmainで`Unity CI Gate`が失敗し得ます。この場合はReleaseを停止し、修正PRで復旧します。
-Release workflowは公開直前にも同じUnity suiteを再実行します。
+bridgeは要求した完全な`GITHUB_SHA`とUBA buildのSCM commitを照合します。statusがSuccessでもSHAが違う、
+terminal statusへ到達しない、artifactが欠ける場合はfail closedです。取得した
+`artifacts/editmode-results.xml`と`artifacts/playmode-results.xml`は、ローカルと同じ
+`Run-MotionTakeStudioTests.ps1 -ValidateResultsOnly`へ渡します。対象assembly単位でrun／assembly件数、
+EditMode 95件以上、PlayMode 2件以上、全件Passed、failed／skipped／inconclusive 0、必須E2E fullnameを再検証するため、UBAの
+build statusだけでRelease gateを開きません。
+
+packageの互換範囲はUnity 2022.3のままで、2022.3.22f1の基準結果も維持します。standalone UBA targetだけが
+2022.3.40f1なのは、22f1がUBAの削除対象になったためです。cloud CI用Editor patchは利用側projectのEditor要件を
+引き上げません。
+
+`Unity CI Gate`はRelease jobの必須依存です。PR時点ではUnity回帰を検出せず、merge後の`main`でgateが
+失敗し得ます。この場合はReleaseを停止し、修正PRで復旧します。Release workflowは公開直前にも同じUnity
+suiteを再実行します。Auto-build Off、Concurrency cap 1、build minutesの支出上限により、信頼境界と
+実行コストを同じ入口で管理します。
 
 この 2 層は決定論的な自動回帰テストです。SteamVR／OpenVR の実デバイス列挙、実際の tracker role、
 任意の NDMF Apply on Play、MA／VRCFury などによる Avatar の再生成は、接続機器と実アバターが必要なため

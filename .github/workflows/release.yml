@@ -35,6 +35,7 @@ jobs:
   # Run the same package-only Unity tests used on main before publishing.
   unity-tests:
     needs: config
+    if: needs.config.outputs.config_package == 'true' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/unity-tests.yml
 
   # Build and release the Package

@@ -28,71 +28,68 @@ jobs:
           ./Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1
           -SelfTest
 
+      - name: Test Unity Build Automation client
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityBuildAutomationClient.ps1
+          -RepositoryRoot .
+
       - name: Test workflow contract
         shell: pwsh
         run: >-
           ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityCiContract.ps1
           -RepositoryRoot .
 
-      - name: Test credential-safe Docker arguments
-        shell: bash
-        run: bash ./.github/scripts/test-run-gameci-package-tests.sh
+      - name: Test Pages workflow security contract
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-PagesWorkflowContract.ps1
+          -RepositoryRoot .
 
-  # Dedicated Unity CI account credentials never reach pull-request code. This
-  # lane runs only after a reviewed change lands on protected main, and again
-  # before release.
+      - name: Test Pages workflow security contract
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-PagesWorkflowContract.ps1
+          -RepositoryRoot .
+          -SelfTest
+
+  # The UBA service-account credentials never reach pull-request code. This lane
+  # runs only after review on protected main, and again before a release.
   unity:
     name: Unity EditMode + PlayMode
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: contract
     concurrency:
-      # One dedicated account/seat is shared by protected-main and release runs.
-      group: motion-take-studio-unity-license
-      # Let the in-flight job return its license before a newer job starts.
+      group: motion-take-studio-unity-build-automation
       cancel-in-progress: false
     runs-on: ubuntu-latest
     environment: unity-ci
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Checkout pinned GameCI runner sources
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
-        with:
-          repository: game-ci/unity-test-runner
-          ref: 0ff419b913a3630032cbe0de48a0099b5a9f0ed9 # v4.3.1
-          path: .gameci/unity-test-runner
-          persist-credentials: false
-
-      - name: Verify Unity license secrets
-        shell: bash
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-        run: |
-          if [[ -z "$UNITY_LICENSE" || -z "$UNITY_EMAIL" || -z "$UNITY_PASSWORD" ]]; then
-            echo "Missing UNITY_LICENSE, UNITY_EMAIL, or UNITY_PASSWORD in the unity-ci environment."
-            exit 1
-          fi
-
-      - name: Run package tests without VRChat SDK or NDMF
+      - name: Run Unity Build Automation tests without VRChat SDK or NDMF
         id: unity_test
-        shell: bash
+        shell: pwsh
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          GAMECI_ACTION_PATH: ${{ github.workspace }}/.gameci/unity-test-runner/dist
-          UNITY_IMAGE: unityci/editor@sha256:1c7b9cf8a65a304bb99f222d91c3452f99148ad647d1416ed658a3908a9f8dea
-          UNITY_VERSION: 2022.3.22f1
-          PROJECT_PATH: Packages/com.buildsoft.motion-take-studio
-          ARTIFACTS_PATH: artifacts
-          PACKAGE_MODE: "true"
-        run: bash ./.github/scripts/run-gameci-package-tests.sh
+          UNITY_UBA_KEY_ID: ${{ secrets.UNITY_UBA_KEY_ID }}
+          UNITY_UBA_SECRET_KEY: ${{ secrets.UNITY_UBA_SECRET_KEY }}
+          UNITY_UBA_ORG_ID: ${{ vars.UNITY_UBA_ORG_ID }}
+          UNITY_UBA_PROJECT_ID: ${{ vars.UNITY_UBA_PROJECT_ID }}
+          UNITY_UBA_BUILD_TARGET_ID: ${{ vars.UNITY_UBA_BUILD_TARGET_ID }}
+          UNITY_VERSION: 2022.3.40f1
+        run: >-
+          ./.github/scripts/Invoke-UnityBuildAutomation.ps1
+          -OrganizationId $env:UNITY_UBA_ORG_ID
+          -ProjectId $env:UNITY_UBA_PROJECT_ID
+          -BuildTargetId $env:UNITY_UBA_BUILD_TARGET_ID
+          -CommitSha $env:GITHUB_SHA
+          -Branch $env:GITHUB_REF_NAME
+          -ExpectedUnityVersion $env:UNITY_VERSION
+          -OutputDirectory artifacts
 
       - name: Validate EditMode NUnit XML
         if: steps.unity_test.outcome == 'success'
@@ -112,7 +109,7 @@ jobs:
           -ValidationMode PlayMode
           -ResultPath artifacts/playmode-results.xml
 
-      - name: Upload Unity test artifacts
+      - name: Upload Unity Build Automation artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -141,7 +138,7 @@ jobs:
               echo "PR CI failed: contract=$CONTRACT_RESULT unity=$UNITY_RESULT"
               exit 1
             fi
-            echo "PR CI contract passed; the secret-bearing Unity job remained skipped."
+            echo "PR CI contract passed; the credential-bearing UBA job remained skipped."
             exit 0
           fi
           if [[ "$CONTRACT_RESULT" != "success" || "$UNITY_RESULT" != "success" ]]; then

@@ -169,45 +169,94 @@ pwsh -File "<package>/Tools~/Run-MotionTakeStudioTests.ps1" -SelfTest
 Unity 2022.3.22f1 での全体基準は Editor 95 / 95、Runtime PlayMode 2 / 2 です。件数が異なる場合は
 XML 内の assembly 名、test fullname、Test Runner のフィルターを確認してください。
 
-### GitHub ActionsでUnity資格情報不足になる
+### GitHub ActionsでUBA認証または設定エラーになる
 
-次の3つがrepository Secretではなく、`main`限定の`unity-ci` Environment Secretへ登録されているか
-確認します。すべて同じ専用Unity CIアカウントのものにします。
+GitHubの`Settings > Environments > unity-ci`に次の5項目があるか確認します。repository Secret／Variableでは
+なく、deployment branchを`main`へ限定したEnvironmentへ置きます。
 
-- `UNITY_LICENSE`: [GameCI Activation](https://game.ci/docs/github/activation/)で取得した`.ulf`の全文
-- `UNITY_EMAIL`: その専用アカウントのlogin email
-- `UNITY_PASSWORD`: その専用アカウントのpassword
+- Secret `UNITY_UBA_KEY_ID`
+- Secret `UNITY_UBA_SECRET_KEY`
+- Variable `UNITY_UBA_ORG_ID`
+- Variable `UNITY_UBA_PROJECT_ID`
+- Variable `UNITY_UBA_BUILD_TARGET_ID`
 
-`UNITY_SERIAL`をSecretへ追加しないでください。信頼済みhost wrapperが`UNITY_LICENSE`の
-`DeveloperData`から導出し、完全な値とUnity表示の末尾`XXXX`形式をlog maskへ登録します。
-`DeveloperData did not contain a valid 27-character serial`で失敗する場合は、
-`.ulf`のコピー欠落、専用アカウントとlicenseの不一致、license更新後のSecret更新漏れを確認します。
-raw ULFは意図的にUnity test containerへ渡しません。containerには導出した`UNITY_SERIAL`、
-`UNITY_EMAIL`、`UNITY_PASSWORD`だけがDockerの`--env NAME`で渡ります。
+Key IDとSecret keyは同じUnity Cloudサービスアカウントkey pairでなければなりません。Unity accountの
+email、password、Editor license、ULF、serialは使用しません。旧hosted Unity CI用Secretが残っていてもbridgeは
+参照しないため、UBA成功を確認した後に別の安全な作業として削除してください。
 
-`unity-ci` Environmentのdeployment branchが`main`のみであること、branch protectionが有効であることも
-[GitHub公式のEnvironment手順](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
-に沿って確認します。Pull Requestでは意図的にUnityを起動せず、`CI Contract`だけを実行します。
+status codeごとの切り分けは次のとおりです。
 
-### Unity activationの詳細がlogに出ない
+- `401`: Key ID／Secret keyの組み合わせ、key失効、前後の空白を確認する
+- `403`: サービスアカウントに対象projectのtarget設定読取、build開始、status／artifact読取、timeout時cancelの
+  最小roleがあるか、現在のDashboard表示に従って確認する
+- `404`: 3つのIDが同じorganization／project／`main` targetを指しているか確認する
+- Environment待機: deployment branch、required reviewer、`main` branch protectionを確認する
 
-資格情報の誤出力を防ぐため、activation／return launcherのstdout／stderrと一時license logの内容は
-意図的に抑止しています。詳細logをworkflowへ出す変更は行わず、次の順に確認します。
+認証header、Secret key、API responseの認証情報をworkflow logへ追加しないでください。keyをrotateするときは
+新しいpairの2つのSecretを同時に更新し、`main`の成功後に古いkeyを無効化します。
 
-1. 専用アカウントのemailとpasswordでUnityへloginできるか。
-2. `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`が同じアカウントの値か。
-3. license更新やpassword変更後に`unity-ci` Environment Secretも更新したか。
-4. 専用アカウントの利用可能なseatが残っているか。
+### UBAが違うUnityを使う、Player buildで止まる、または二重起動する
 
-### 強制キャンセル後にUnity seatが残った
+Dashboardの`UNITY_UBA_BUILD_TARGET_ID`に対応するConfigurationを開き、次を確認します。
 
-workflowは`cancel-in-progress: false`で、通常終了、test失敗、host／containerのhandled signalでlicense returnを
-試み、成功logまたはlocal license artifactの削除を確認します。
-ただしGitHub上での強制キャンセル、runner喪失、container／processの強制終了ではreturnが完了しない
-場合があります。別のrunを開始せず、実行中のUnity workflowがないことを確認してから、
-[GameCIのlicense return手順](https://game.ci/docs/github/returning-a-license/)とUnityのlicense管理画面を確認します。
-GameCIが案内するmanual returnはProfessional license用です。Professionalでは同手順、それ以外のlicense種別では
-Unityのlicense管理画面またはSupportが案内する方法で、専用Unity CIアカウントのseatを手動回復します。
+- Branchは`main`、Project subfolderは空欄
+- Unity versionは`2022.3.40f1`を明示し、Auto DetectはOff
+- Windows Desktop 64-bit、Machine typeは`Micro`
+- Unit tests、EditMode、PlayMode、test失敗時build失敗がすべてOn
+- Auto-buildとScheduleはOff
+- Player exportはOff（`settings.advanced.unity.playerExporter.export=false`）
+
+このtargetはunit-test-only／Content-onlyです。Playerやscene buildの失敗が出る場合、player exportが再びOnに
+なっていないか確認します。pushごとにUBA buildが2件作られる場合は、UBAのAuto-buildまたはScheduleが
+有効です。GitHub exact-SHA bridgeだけをtriggerにします。
+
+packageの対応範囲はUnity 2022.3で、既存のローカル基準結果は2022.3.22f1です。standalone repositoryの
+`ProjectVersion.txt`とUBA targetを40f1へ揃えたのは、Unityの2026年dependency更新で22f1が削除対象になった
+ためです。Auto Detectに依存せず、targetにも40f1を明示してpreflightで不一致を検出します。
+
+### UBAはSuccessだが`Unity CI Gate`が失敗する
+
+`.github/scripts/Invoke-UnityBuildAutomation.ps1`は、要求した完全な`GITHUB_SHA`とUBA buildのSCM commitが
+一致しない場合に失敗します。branch名が`main`でも、push直後の別commitや過去の成功buildは受け入れません。
+Dashboardのbuild詳細でcommit SHAを確認し、対象workflow runのSHAと完全一致しなければ再利用せず、正しい
+SHAで新しいbuildを開始します。
+
+SHAが一致しても、次の2ファイルが欠落、破損、またはstrict validationに不合格ならgateは失敗します。
+
+- `artifacts/editmode-results.xml`
+- `artifacts/playmode-results.xml`
+
+artifactをdownloadした作業ディレクトリで、workflowと同じ検証を再現できます。
+
+```powershell
+pwsh -File "Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1" `
+  -ValidateResultsOnly -ValidationMode EditMode `
+  -ResultPath "artifacts/editmode-results.xml"
+
+pwsh -File "Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1" `
+  -ValidateResultsOnly -ValidationMode PlayMode `
+  -ResultPath "artifacts/playmode-results.xml"
+```
+
+validatorはwell-formed XML、対象assembly、run／assembly件数一致、EditMode 95件以上、PlayMode 2件以上、全件Passed、
+failed／skipped／inconclusive 0、必須E2E fullnameを確認します。UBAのbuild statusだけを成功条件に
+しないため、0件run、途中XML、別assemblyのartifactも意図的に失敗します。2022.3.22f1での確認済み基準は
+Editor 95 / 95、Runtime PlayMode 2 / 2です。40f1の件数を新しい基準として記載するのは、実際のUBA XMLを
+検証した後にしてください。
+
+### UBAの無料枠が想定より早く減る
+
+2026年の無料枠はorganizationごとに月200 Windows Micro分ですが、clean build、手動Replay、Release直前の
+再検証も消費に含まれます。Dashboardの**Build Automation > Settings > Build Consumption**で次を確認します。
+
+- Build minutes monthly capが有効で、追加支出が`$0`または許容額に制限されている
+- Monthly cap reminderが支出上限より低い値に設定されている
+- Concurrency capが`1`
+- Auto-buildとScheduleがOff
+- 不要なartifactを保持し続けないretention ruleになっている
+
+料金と無料枠は変更されるため、Dashboardの当月usageを正とします。支出cap到達時は設定を緩める前に、
+二重trigger、不要なclean build、長すぎるartifact保持を先に修正してください。
 
 ## 自動テストが通るが OpenVR / 任意 NDMF の実機 Capture が動かない
 
