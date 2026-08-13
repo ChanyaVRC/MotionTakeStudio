@@ -98,6 +98,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
         private int _currentFrame;
         private bool _tearingDown;
         private string _testOwnedSessionId;
+        private Func<double> _realtimeProviderForTests;
 
         static MotionCaptureCoordinator()
         {
@@ -386,6 +387,11 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 "Test capture references were reset before an optional processor callback.");
         }
 
+        internal void SetRealtimeProviderForTests(Func<double> provider)
+        {
+            _realtimeProviderForTests = provider;
+        }
+
         internal void ResetForTests()
         {
             var testSessionId = _testOwnedSessionId;
@@ -420,6 +426,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
             _sourceHumanPose = default(HumanPose);
             _animatorPaused = false;
             _testOwnedSessionId = null;
+            _realtimeProviderForTests = null;
 
             SessionState.EraseBool(ArmedKey);
             SessionState.EraseString(SourceGlobalIdKey);
@@ -553,7 +560,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
             _captureIkIssues.Clear();
             _captureRig?.ResetCalibration();
             _currentFrame = 0;
-            _recordingStartedRealtime = Time.realtimeSinceStartupAsDouble;
+            _recordingStartedRealtime = GetRealtimeSeconds();
             _nextSampleTime = 0d;
             _journal?.Dispose();
             _journal = new RecoveryJournal(_take);
@@ -586,7 +593,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
             _take.gapWarnings.InsertRange(0, timingWarnings);
             RebuildResolvedPosesAfterGapRepair();
             BuildRuntimeTake();
-            _journal?.Complete(_take, Time.realtimeSinceStartupAsDouble);
+            _journal?.Complete(_take, GetRealtimeSeconds());
             _journal?.Dispose();
             _journal = null;
             PauseAnimator();
@@ -1340,7 +1347,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 return;
             }
 
-            var elapsed = Time.realtimeSinceStartupAsDouble - _recordingStartedRealtime;
+            var elapsed = GetRealtimeSeconds() - _recordingStartedRealtime;
             var interval = 1d / CaptureFrameRate;
             var plan = PlanCaptureSamples(_nextSampleTime, elapsed, interval);
             _nextSampleTime = plan.NextSampleTime;
@@ -1425,7 +1432,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
         private void AppendCaptureFrame(HumanoidCaptureFrame frame)
         {
             _take.frames.Add(frame);
-            _journal?.Append(frame, Time.realtimeSinceStartupAsDouble);
+            _journal?.Append(frame, GetRealtimeSeconds());
             _currentFrame = _take.frames.Count - 1;
             Changed?.Invoke();
         }
@@ -1433,6 +1440,13 @@ namespace BuildSoft.MotionTakeStudio.Editor
         private static float[] CloneMuscles(float[] muscles)
         {
             return muscles == null ? Array.Empty<float>() : (float[])muscles.Clone();
+        }
+
+        private double GetRealtimeSeconds()
+        {
+            return _realtimeProviderForTests == null
+                ? Time.realtimeSinceStartupAsDouble
+                : _realtimeProviderForTests();
         }
 
         private void RebuildResolvedPosesAfterGapRepair()
