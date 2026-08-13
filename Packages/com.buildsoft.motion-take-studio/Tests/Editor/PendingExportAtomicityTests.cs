@@ -15,8 +15,34 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
         private const string PayloadKey = "BuildSoft.MotionTakeStudio.Export.Payload";
         private const string PayloadPathKey = "BuildSoft.MotionTakeStudio.Export.PayloadPath";
 
+        private static readonly string[] SharedOutputFolders =
+        {
+            "Assets/MotionTakeStudio/Clips",
+            "Assets/MotionTakeStudio/Takes",
+            "Assets/MotionTakeStudio"
+        };
+
         private readonly HashSet<string> cleanupAssets = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> cleanupFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> cleanupFolders = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> cleanupTakeNames = new HashSet<string>(StringComparer.Ordinal);
+
+        [SetUp]
+        public void SetUp()
+        {
+            cleanupAssets.Clear();
+            cleanupFiles.Clear();
+            cleanupFolders.Clear();
+            cleanupTakeNames.Clear();
+
+            foreach (var folder in SharedOutputFolders)
+            {
+                if (!AssetDatabase.IsValidFolder(folder))
+                {
+                    cleanupFolders.Add(folder);
+                }
+            }
+        }
 
         [TearDown]
         public void TearDown()
@@ -24,6 +50,11 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             SessionState.SetBool(PendingKey, false);
             SessionState.EraseString(PayloadKey);
             SessionState.EraseString(PayloadPathKey);
+
+            foreach (var takeName in cleanupTakeNames)
+            {
+                RegisterGeneratedAssets(takeName);
+            }
 
             foreach (var assetPath in cleanupAssets.OrderByDescending(path => path.Length))
             {
@@ -39,6 +70,13 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             }
 
             AssetDatabase.Refresh();
+            DeleteEmptyFoldersCreatedByTest();
+            AssetDatabase.Refresh();
+
+            cleanupAssets.Clear();
+            cleanupFiles.Clear();
+            cleanupFolders.Clear();
+            cleanupTakeNames.Clear();
         }
 
         [Test]
@@ -77,11 +115,39 @@ namespace BuildSoft.MotionTakeStudio.Editor.Tests
             RegisterGeneratedAssets(scenario.TakeName);
             Assert.That(FindGeneratedClips(scenario.TakeName), Has.Length.EqualTo(3),
                 "Retry must not leave the first failed attempt's three orphan clips beside the committed set.");
+
+            var foldersCreatedByTest = cleanupFolders.ToArray();
+            TearDown();
+            foreach (var folder in foldersCreatedByTest)
+            {
+                Assert.That(AssetDatabase.IsValidFolder(folder), Is.False,
+                    $"A clean project must not retain the test-created output folder {folder}.");
+            }
+        }
+
+        private void DeleteEmptyFoldersCreatedByTest()
+        {
+            foreach (var folder in cleanupFolders.OrderByDescending(path => path.Length))
+            {
+                if (!AssetDatabase.IsValidFolder(folder))
+                {
+                    continue;
+                }
+
+                var prefix = folder + "/";
+                var hasChildren = AssetDatabase.GetAllAssetPaths()
+                    .Any(path => path.StartsWith(prefix, StringComparison.Ordinal));
+                if (!hasChildren)
+                {
+                    AssetDatabase.DeleteAsset(folder);
+                }
+            }
         }
 
         private Scenario StageScenario()
         {
             var takeName = "Pending Atomic " + Guid.NewGuid().ToString("N");
+            cleanupTakeNames.Add(takeName);
             var capture = new CaptureTake
             {
                 sessionId = Guid.NewGuid().ToString("N"),
