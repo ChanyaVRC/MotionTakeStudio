@@ -45,12 +45,6 @@ jobs:
         run: >-
           ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-PagesWorkflowContract.ps1
           -RepositoryRoot .
-
-      - name: Test Pages workflow security contract
-        shell: pwsh
-        run: >-
-          ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-PagesWorkflowContract.ps1
-          -RepositoryRoot .
           -SelfTest
 
   # The UBA service-account credentials never reach pull-request code. This lane

@@ -295,6 +295,7 @@ function New-UbaScenario {
         SecretKey = "secret-key-DO-NOT-LEAK"
     }
 
+    $responseFactory = ${function:New-MockResponse}
     $handler = {
         param($Request)
 
@@ -307,7 +308,7 @@ function New-UbaScenario {
         if ($Request.Method -eq "GET" -and $path -eq $targetPath) {
             $state.TargetCount++
             if ($state.TargetHttpFailure -ne 0) {
-                return New-MockResponse `
+                return & $responseFactory `
                     -StatusCode $state.TargetHttpFailure `
                     -Body ("credential=" + $state.SecretKey +
                         " https://signed.invalid/leak?sig=DO-NOT-LEAK")
@@ -315,13 +316,13 @@ function New-UbaScenario {
 
             if ($state.RateLimitRemaining -gt 0) {
                 $state.RateLimitRemaining--
-                return New-MockResponse `
+                return & $responseFactory `
                     -StatusCode 429 `
                     -Body '{"detail":"rate limited"}' `
                     -Headers @{ "Retry-After" = "0" }
             }
 
-            return New-MockResponse `
+            return & $responseFactory `
                 -StatusCode 200 `
                 -Body ($state.Target | ConvertTo-Json -Depth 20 -Compress)
         }
@@ -329,7 +330,7 @@ function New-UbaScenario {
         if ($Request.Method -eq "POST" -and $path -eq $buildsPath) {
             $body = $Request.Body | ConvertFrom-Json
             if ($body.commit -ne $state.CommitSha -or $body.branch -ne "main") {
-                return New-MockResponse -StatusCode 400 -Body '{"detail":"wrong revision"}'
+                return & $responseFactory -StatusCode 400 -Body '{"detail":"wrong revision"}'
             }
 
             $responses = @()
@@ -361,12 +362,12 @@ function New-UbaScenario {
             else {
                 $responses | ConvertTo-Json -Depth 10 -Compress -AsArray
             }
-            return New-MockResponse -StatusCode 202 -Body $responseBody
+            return & $responseFactory -StatusCode 202 -Body $responseBody
         }
 
         if ($path -eq "$buildsPath/17" -and $Request.Method -eq "DELETE") {
             $state.DeleteCount++
-            return New-MockResponse -StatusCode 204 -Body ""
+            return & $responseFactory -StatusCode 204 -Body ""
         }
 
         if ($path -eq "$buildsPath/17" -and $Request.Method -eq "GET") {
@@ -402,7 +403,7 @@ function New-UbaScenario {
                 "failed_editmode" { $testResults.unit_test_editmode.failed = 1 }
                 "failed_playmode" { $testResults.unit_test_playmode.failed = 1 }
             }
-            return New-MockResponse -StatusCode 200 -Body ([ordered]@{
+            return & $responseFactory -StatusCode 200 -Body ([ordered]@{
                 build = 17
                 buildtargetid = "tests"
                 buildStatus = $status
@@ -416,7 +417,7 @@ function New-UbaScenario {
         }
 
         if ($path -eq "$buildsPath/17/failures" -and $Request.Method -eq "GET") {
-            return New-MockResponse -StatusCode 200 -Body ([ordered]@{
+            return & $responseFactory -StatusCode 200 -Body ([ordered]@{
                 failures = @([ordered]@{
                     displayName = "Build failed"
                     publicMessage = "redacted diagnostic"
@@ -426,7 +427,7 @@ function New-UbaScenario {
         }
 
         if ($path -eq "$buildsPath/17/log" -and $Request.Method -eq "GET") {
-            return New-MockResponse -StatusCode 200 -Body (
+            return & $responseFactory -StatusCode 200 -Body (
                 "log contained " + $state.KeyId + " " + $state.SecretKey +
                 " Authorization: Basic Zm9vOmJhcg== " + $state.EditSignedUri)
         }
@@ -446,7 +447,7 @@ function New-UbaScenario {
                 })
             }
 
-            return New-MockResponse -StatusCode 200 -Body (@(
+            return & $responseFactory -StatusCode 200 -Body (@(
                 [ordered]@{
                     key = "unit-tests"
                     name = "Unit test results"
@@ -459,20 +460,20 @@ function New-UbaScenario {
 
         if ($path -eq "/v2/downloads/playmode-test-results.zip" -and
             $Request.Method -eq "GET") {
-            return New-MockResponse `
+            return & $responseFactory `
                 -StatusCode 303 `
                 -Body (@{ url = $state.PlaySignedUri } | ConvertTo-Json -Compress)
         }
 
         if ($Request.Uri -eq $state.EditSignedUri -and $Request.Method -eq "GET") {
-            return New-MockResponse -StatusCode 200 -Body $null -Content $state.EditXmlBytes
+            return & $responseFactory -StatusCode 200 -Body $null -Content $state.EditXmlBytes
         }
 
         if ($Request.Uri -eq $state.PlaySignedUri -and $Request.Method -eq "GET") {
-            return New-MockResponse -StatusCode 200 -Body $null -Content $state.PlayZipBytes
+            return & $responseFactory -StatusCode 200 -Body $null -Content $state.PlayZipBytes
         }
 
-        return New-MockResponse -StatusCode 404 -Body '{"detail":"fixture route missing"}'
+        return & $responseFactory -StatusCode 404 -Body '{"detail":"fixture route missing"}'
     }.GetNewClosure()
 
     return [pscustomobject]@{
@@ -550,7 +551,14 @@ function Invoke-TestClient {
 try {
     $successDirectory = Join-Path $fixtureRoot "success"
     $success = New-UbaScenario
-    $result = Invoke-TestClient -Scenario $success -OutputDirectory $successDirectory
+    $mockResponseFunction = ${function:New-MockResponse}
+    Remove-Item -LiteralPath Function:\New-MockResponse
+    try {
+        $result = Invoke-TestClient -Scenario $success -OutputDirectory $successDirectory
+    }
+    finally {
+        Set-Item -LiteralPath Function:\New-MockResponse -Value $mockResponseFunction
+    }
     Assert-Equal $result.BuildStatus "success" "successful UBA status"
     Assert-Equal $result.LastBuiltRevision $commitSha "exact built revision"
     Assert-True `
