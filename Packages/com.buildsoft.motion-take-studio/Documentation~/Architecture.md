@@ -169,13 +169,36 @@ Unity 2022.3.22f1 での基準結果は Editor **95 / 95**、Runtime PlayMode **
 Editor suite には、内部で Play Mode へ遷移する NDMF なしの全経路 E2E と、任意 Processor の
 完了通知ゲート E2E を含みます。
 
-GitHub Actionsの信頼境界は2段階です。Pull RequestではSecret不要のCI契約だけを実行します。`main`と
-Releaseではmain限定の`unity-ci` Environmentからライセンスを取得し、GameCI Package Modeの一時Projectで
-両suiteを実行します。この一時ProjectにはVRChat SDK／NDMFを導入しません。NUnit XMLはローカルrunnerと
+GitHub Actionsの信頼境界は2段階です。Pull RequestではSecret不要のCI契約だけを実行し、Unityや
+Dockerは起動しません。保護された`main`とReleaseだけが、専用Unity CIアカウントの
+`UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`を`unity-ci` Environmentから取得します。
+[GitHub Environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)の
+deployment branch制限とSecret公開条件が通るまで、Unity jobはこれらを参照できません。repository側でも
+`main`をbranch protectionで保護します。
+
+信頼済みhost wrapperはULFの`DeveloperData`から`UNITY_SERIAL`を導出し、raw ULF自体をcontainerへ
+渡しません。Dockerはargv配列で起動し、資格情報は値をcommand lineへ展開せず`--env NAME`で
+名前だけを指定します。完全なserialとUnityが表示する末尾`XXXX`形式の両方をGitHub log maskへ
+登録します。同一の固定digestのGameCI container内でonline activation、test、license
+returnを行う点は[GameCI Test Runner](https://game.ci/docs/github/test-runner/)の標準的なtrust modelと同じです。
+資格情報はactivation／returnには必要であり、
+host runnerとそれらのprocessに対する信頼は残ります。
+
+追加したsecure `run_steps` は、test用子processを開始する前に`UNITY_LICENSE`、`UNITY_EMAIL`、
+`UNITY_PASSWORD`、`UNITY_SERIAL`をenvironmentから削除します。activationとreturnのUnity launcherは
+stdout／stderrを抑止し、一時logの内容もworkflow logへ転記しません。これはテストコードと
+偶発的なlog出力への露出面を狭める追加対策であり、container全体を秘密から切り離すものではありません。
+
+`cancel-in-progress: false`により同じconcurrency groupの新しいrunは実行中jobを自動キャンセルせず、
+host／container双方のhandled signalでは実行中の子processを停止してlicense returnを試みます。返却は
+exit codeだけでなく成功logまたはlocal license artifactの削除を確認します。ただし強制キャンセル、runner喪失、process killでは
+cleanupが完了する保証はなく、専用アカウントのseatを手動回復する場合があります。
+
+GameCI Package Modeの一時ProjectにはVRChat SDK／NDMFを導入しません。NUnit XMLはローカルrunnerと
 同じcontractで再検証し、`Unity CI Gate`をRelease jobの必須依存にします。Unity資格情報を未信頼PRへ渡す
-`pull_request_target`や、PR SHAをcheckoutする特権workflowは使用しません。
-PR時点ではUnity回帰を検出せず、merge後のmainで`Unity CI Gate`が失敗し得ます。この場合はReleaseを停止し、
-修正PRで復旧します。Release workflowは公開直前にも同じUnity suiteを再実行します。
+`pull_request_target`や、PR SHAをcheckoutする特権workflowは使用しません。PR時点ではUnity回帰を検出せず、
+merge後のmainで`Unity CI Gate`が失敗し得ます。この場合はReleaseを停止し、修正PRで復旧します。
+Release workflowは公開直前にも同じUnity suiteを再実行します。
 
 この 2 層は決定論的な自動回帰テストです。SteamVR／OpenVR の実デバイス列挙、実際の tracker role、
 任意の NDMF Apply on Play、MA／VRCFury などによる Avatar の再生成は、接続機器と実アバターが必要なため

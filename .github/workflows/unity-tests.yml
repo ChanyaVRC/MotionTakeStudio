@@ -11,10 +11,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: unity-tests-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   contract:
     name: CI Contract
@@ -22,7 +18,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Test runner contract
         shell: pwsh
@@ -36,55 +34,65 @@ jobs:
           ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityCiContract.ps1
           -RepositoryRoot .
 
-  # Unity account credentials never reach pull-request code. This lane runs only
-  # after a reviewed change lands on protected main, and again before release.
+      - name: Test credential-safe Docker arguments
+        shell: bash
+        run: bash ./.github/scripts/test-run-gameci-package-tests.sh
+
+  # Dedicated Unity CI account credentials never reach pull-request code. This
+  # lane runs only after a reviewed change lands on protected main, and again
+  # before release.
   unity:
     name: Unity EditMode + PlayMode
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: contract
+    concurrency:
+      # One dedicated account/seat is shared by protected-main and release runs.
+      group: motion-take-studio-unity-license
+      # Let the in-flight job return its license before a newer job starts.
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment: unity-ci
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned GameCI runner sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+        with:
+          repository: game-ci/unity-test-runner
+          ref: 0ff419b913a3630032cbe0de48a0099b5a9f0ed9 # v4.3.1
+          path: .gameci/unity-test-runner
+          persist-credentials: false
 
       - name: Verify Unity license secrets
         shell: bash
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
-          if [[ -z "$UNITY_EMAIL" || -z "$UNITY_PASSWORD" ]]; then
-            echo "Missing UNITY_EMAIL or UNITY_PASSWORD in the unity-ci environment."
-            exit 1
-          fi
-          if [[ -z "$UNITY_LICENSE" && -z "$UNITY_SERIAL" ]]; then
-            echo "Missing UNITY_LICENSE (Personal) or UNITY_SERIAL (Pro) in the unity-ci environment."
+          if [[ -z "$UNITY_LICENSE" || -z "$UNITY_EMAIL" || -z "$UNITY_PASSWORD" ]]; then
+            echo "Missing UNITY_LICENSE, UNITY_EMAIL, or UNITY_PASSWORD in the unity-ci environment."
             exit 1
           fi
 
       - name: Run package tests without VRChat SDK or NDMF
         id: unity_test
-        uses: game-ci/unity-test-runner@0ff419b913a3630032cbe0de48a0099b5a9f0ed9 # v4.3.1
+        shell: bash
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-        with:
-          packageMode: true
-          projectPath: Packages/com.buildsoft.motion-take-studio
-          unityVersion: 2022.3.22f1
-          testMode: all
-          artifactsPath: artifacts
-          customImage: unityci/editor@sha256:1c7b9cf8a65a304bb99f222d91c3452f99148ad647d1416ed658a3908a9f8dea
-          customParameters: >-
-            -nographics
-            -assemblyNames
-            BuildSoft.MotionTakeStudio.Editor.Tests;BuildSoft.MotionTakeStudio.PlayMode.Tests
+          GAMECI_ACTION_PATH: ${{ github.workspace }}/.gameci/unity-test-runner/dist
+          UNITY_IMAGE: unityci/editor@sha256:1c7b9cf8a65a304bb99f222d91c3452f99148ad647d1416ed658a3908a9f8dea
+          UNITY_VERSION: 2022.3.22f1
+          PROJECT_PATH: Packages/com.buildsoft.motion-take-studio
+          ARTIFACTS_PATH: artifacts
+          PACKAGE_MODE: "true"
+        run: bash ./.github/scripts/run-gameci-package-tests.sh
 
       - name: Validate EditMode NUnit XML
         if: steps.unity_test.outcome == 'success'
@@ -115,7 +123,7 @@ jobs:
 
   gate:
     name: Unity CI Gate
-    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: always()
     needs:
       - contract
       - unity
@@ -124,9 +132,18 @@ jobs:
     steps:
       - name: Require contract and Unity tests
         env:
+          EVENT_NAME: ${{ github.event_name }}
           CONTRACT_RESULT: ${{ needs.contract.result }}
           UNITY_RESULT: ${{ needs.unity.result }}
         run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            if [[ "$CONTRACT_RESULT" != "success" || "$UNITY_RESULT" != "skipped" ]]; then
+              echo "PR CI failed: contract=$CONTRACT_RESULT unity=$UNITY_RESULT"
+              exit 1
+            fi
+            echo "PR CI contract passed; the secret-bearing Unity job remained skipped."
+            exit 0
+          fi
           if [[ "$CONTRACT_RESULT" != "success" || "$UNITY_RESULT" != "success" ]]; then
             echo "Unity CI failed: contract=$CONTRACT_RESULT unity=$UNITY_RESULT"
             exit 1

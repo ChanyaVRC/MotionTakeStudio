@@ -169,15 +169,45 @@ pwsh -File "<package>/Tools~/Run-MotionTakeStudioTests.ps1" -SelfTest
 Unity 2022.3.22f1 での全体基準は Editor 95 / 95、Runtime PlayMode 2 / 2 です。件数が異なる場合は
 XML 内の assembly 名、test fullname、Test Runner のフィルターを確認してください。
 
-### GitHub ActionsでUnity license Secret不足になる
+### GitHub ActionsでUnity資格情報不足になる
 
-`unity-ci` Environmentが`main`を許可していることを確認し、Personalなら`UNITY_LICENSE`、
-`UNITY_EMAIL`、`UNITY_PASSWORD`、Proなら`UNITY_SERIAL`、`UNITY_EMAIL`、`UNITY_PASSWORD`を設定します。
-Repository全体のSecretではなく、main限定のEnvironment Secretを使用してください。Pull Requestでは
-意図的にUnityを起動せず、`CI Contract`だけを実行します。
-Personalの`.ulf`取得場所とProの登録方法は
-[GameCI Activation](https://game.ci/docs/github/activation/)を参照してください。WindowsのPersonal licenseは
-通常`C:\ProgramData\Unity\Unity_lic.ulf`にあります。ライセンスを更新した場合は`UNITY_LICENSE`も更新します。
+次の3つがrepository Secretではなく、`main`限定の`unity-ci` Environment Secretへ登録されているか
+確認します。すべて同じ専用Unity CIアカウントのものにします。
+
+- `UNITY_LICENSE`: [GameCI Activation](https://game.ci/docs/github/activation/)で取得した`.ulf`の全文
+- `UNITY_EMAIL`: その専用アカウントのlogin email
+- `UNITY_PASSWORD`: その専用アカウントのpassword
+
+`UNITY_SERIAL`をSecretへ追加しないでください。信頼済みhost wrapperが`UNITY_LICENSE`の
+`DeveloperData`から導出し、完全な値とUnity表示の末尾`XXXX`形式をlog maskへ登録します。
+`DeveloperData did not contain a valid 27-character serial`で失敗する場合は、
+`.ulf`のコピー欠落、専用アカウントとlicenseの不一致、license更新後のSecret更新漏れを確認します。
+raw ULFは意図的にUnity test containerへ渡しません。containerには導出した`UNITY_SERIAL`、
+`UNITY_EMAIL`、`UNITY_PASSWORD`だけがDockerの`--env NAME`で渡ります。
+
+`unity-ci` Environmentのdeployment branchが`main`のみであること、branch protectionが有効であることも
+[GitHub公式のEnvironment手順](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+に沿って確認します。Pull Requestでは意図的にUnityを起動せず、`CI Contract`だけを実行します。
+
+### Unity activationの詳細がlogに出ない
+
+資格情報の誤出力を防ぐため、activation／return launcherのstdout／stderrと一時license logの内容は
+意図的に抑止しています。詳細logをworkflowへ出す変更は行わず、次の順に確認します。
+
+1. 専用アカウントのemailとpasswordでUnityへloginできるか。
+2. `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`が同じアカウントの値か。
+3. license更新やpassword変更後に`unity-ci` Environment Secretも更新したか。
+4. 専用アカウントの利用可能なseatが残っているか。
+
+### 強制キャンセル後にUnity seatが残った
+
+workflowは`cancel-in-progress: false`で、通常終了、test失敗、host／containerのhandled signalでlicense returnを
+試み、成功logまたはlocal license artifactの削除を確認します。
+ただしGitHub上での強制キャンセル、runner喪失、container／processの強制終了ではreturnが完了しない
+場合があります。別のrunを開始せず、実行中のUnity workflowがないことを確認してから、
+[GameCIのlicense return手順](https://game.ci/docs/github/returning-a-license/)とUnityのlicense管理画面を確認します。
+GameCIが案内するmanual returnはProfessional license用です。Professionalでは同手順、それ以外のlicense種別では
+Unityのlicense管理画面またはSupportが案内する方法で、専用Unity CIアカウントのseatを手動回復します。
 
 ## 自動テストが通るが OpenVR / 任意 NDMF の実機 Capture が動かない
 

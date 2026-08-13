@@ -306,8 +306,10 @@ XML と `.log` を artifact として保存してください。
 
 `.github/workflows/unity-tests.yml` は次の2段階です。
 
-1. Pull Requestでは、Unity資格情報を渡さずrunnerのXML判定とworkflow構成だけを検証します。
-2. `main`へのpush、`main`からの手動実行、Releaseでは、`unity-ci` Environmentを使ってGameCIを実行します。
+1. Pull Requestでは、Unity資格情報を渡さずrunnerのXML判定、workflow構成、資格情報を値でDocker
+   argumentへ展開しないことだけを検証します。UnityとDockerは起動しません。
+2. 保護された`main`へのpush、`main`からの手動実行、Releaseでは、`unity-ci` Environmentの
+   専用Unity CIアカウントを使ってGameCIを実行します。
 
 そのためPR上の`CI Contract`成功はUnityテスト成功を意味しません。merge後の`main`で`Unity CI Gate`を必ず確認し、
 失敗時はReleaseせず修正PRを作成します。Release workflow自身もUnity suiteを再実行します。
@@ -317,18 +319,41 @@ Unity本体はPackage Modeの一時Projectへ
 EditorとPlayModeを実行し、偶発的な必須依存を検出します。Unity 2022.3.22f1のDocker imageと使用Actionは
 digest／commit SHAへ固定しています。結果XMLとlogは14日間artifactとして保存されます。
 
-`unity-ci` Environmentは`main`だけを許可し、次のSecretを設定します。値はworkflowやログへ書かないでください。
+#### `unity-ci` Environmentを準備する
 
-- Personal: `UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`
-- Pro: `UNITY_SERIAL`、`UNITY_EMAIL`、`UNITY_PASSWORD`
+1. このrepositoryのCIだけで使う専用Unity CIアカウントを準備し、そのアカウントで
+   [GameCI Activation](https://game.ci/docs/github/activation/)の現行手順に従ってlicenseの`.ulf`を取得します。
+2. GitHubの`Settings > Environments`に`unity-ci`を作成し、deployment branchを`main`だけに制限します。
+   必要ならrequired reviewerも設定します。操作は
+   [GitHub公式のEnvironment手順](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+   を参照してください。
+3. `unity-ci` のEnvironment Secretへ、`.ulf`全体を`UNITY_LICENSE`、同じ専用アカウントの
+   login emailを`UNITY_EMAIL`、passwordを`UNITY_PASSWORD`として登録します。`UNITY_SERIAL`はSecretに
+   追加しません。
+4. `main`をbranch protectionで保護します。PRではreviewと`CI Contract`をmerge条件にし、merge後の
+   `Unity CI Gate`成功をRelease条件にします。
 
-Personalの`UNITY_LICENSE`はUnity HubでPersonal licenseを有効化した端末の`.ulf`ファイル全体を登録します。
-Windowsの既定場所は`C:\ProgramData\Unity\Unity_lic.ulf`です。詳しい取得場所とPro設定は
-[GameCI Activation](https://game.ci/docs/github/activation/)を参照してください。ライセンス更新後はSecretも
-更新し、メールアドレスやパスワードをGit、PR、issue、workflow logへ貼らないでください。
+`UNITY_LICENSE`のraw ULFは信頼済みGitHub host上でserial導出にだけ使います。host wrapperが
+ULFの`DeveloperData`から`UNITY_SERIAL`を導出し、完全な値とUnityが表示する末尾`XXXX`形式をmaskします。
+raw ULF自体はUnity test containerへ
+渡しません。containerへは`UNITY_EMAIL`、`UNITY_PASSWORD`、導出した`UNITY_SERIAL`の名前だけを
+Dockerのargv配列から`--env NAME`で指定し、値をcommand line argumentへ埋め込みません。
+
+online activation、test、license returnが同じGameCI container内で実行される点は、
+[GameCI Test Runner](https://game.ci/docs/github/test-runner/)の標準的なtrust modelと同じです。このrepositoryは
+secure `run_steps` を追加し、test用子processから`UNITY_LICENSE`、`UNITY_EMAIL`、`UNITY_PASSWORD`、
+`UNITY_SERIAL`を削除します。activation／return launcherのstdout／stderrも抑止します。ただし、
+activation／return processとhost runnerには資格情報が必要です。そのため専用アカウントを使い、
+保護された`main`でreview済みのworkflowだけを実行します。
+
+workflowは`cancel-in-progress: false`で、同じconcurrency groupの実行中jobを新しいrunが自動
+キャンセルしないようにしています。通常終了、test失敗、host／containerのhandled signalではlicense returnを
+試み、成功logまたはlocal license artifactの削除を確認します。
+強制キャンセルやrunner喪失でcleanupが完了しない場合は、次の実行前に専用アカウントのseatの
+手動回復が必要になることがあります。
 
 GameCIへはPull Requestのコードを渡さず、`pull_request_target`も使用しません。fork由来を含む未信頼コードへ
-Unityアカウント資格情報を公開しないためです。`.github/workflows/release.yml`も同じreusable workflowを呼び、
+Unityアカウント資格情報やlicenseを公開しないためです。`.github/workflows/release.yml`も同じreusable workflowを呼び、
 Unity CI Gateが成功した`main`以外からはpackageを公開できません。
 ローカルrunnerとCI契約テストにはPowerShell 7以降の`pwsh`が必要です。
 
