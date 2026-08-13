@@ -142,14 +142,22 @@ function New-TestXml {
         [string]$AssemblyName,
 
         [Parameter(Mandatory = $true)]
-        [string]$TestFullName
+        [string]$TestFullName,
+
+        [switch]$Failed
     )
 
+    $rootResult = if ($Failed) { "Failed" } else { "Passed" }
+    $rootPassed = if ($Failed) { 1 } else { 2 }
+    $rootFailed = if ($Failed) { 1 } else { 0 }
+    $assemblyPassed = if ($Failed) { 0 } else { 1 }
+    $assemblyFailed = if ($Failed) { 1 } else { 0 }
+
     return @"
-<test-run result="Passed" total="2" passed="2" failed="0" skipped="0" inconclusive="0">
-  <test-suite type="Assembly" name="$AssemblyName" result="Passed"
-              total="1" passed="1" failed="0" skipped="0" inconclusive="0">
-    <test-case fullname="$TestFullName" result="Passed" />
+<test-run result="$rootResult" total="2" passed="$rootPassed" failed="$rootFailed" skipped="0" inconclusive="0">
+  <test-suite type="Assembly" name="$AssemblyName" result="$rootResult"
+              total="1" passed="$assemblyPassed" failed="$assemblyFailed" skipped="0" inconclusive="0">
+    <test-case fullname="$TestFullName" result="$rootResult" />
   </test-suite>
   <test-suite type="Assembly" name="Unrelated.Tests.dll" result="Passed"
               total="1" passed="1" failed="0" skipped="0" inconclusive="0">
@@ -221,6 +229,8 @@ function New-UbaScenario {
 
         [ValidateSet(
             "none",
+            "empty_both",
+            "partial_editmode",
             "missing_editmode",
             "missing_playmode",
             "passed_zero_editmode",
@@ -235,6 +245,8 @@ function New-UbaScenario {
 
         [switch]$MissingPlayModeArtifact,
 
+        [switch]$FailedEditModeArtifact,
+
         [switch]$DuplicateEditModeAssembly
     )
 
@@ -246,7 +258,8 @@ function New-UbaScenario {
 
     $editXml = New-TestXml `
         -AssemblyName "BuildSoft.MotionTakeStudio.Editor.Tests.dll" `
-        -TestFullName "BuildSoft.MotionTakeStudio.Editor.Tests.Example.Passes"
+        -TestFullName "BuildSoft.MotionTakeStudio.Editor.Tests.Example.Passes" `
+        -Failed:$FailedEditModeArtifact
     if ($DuplicateEditModeAssembly) {
         $editXml = $editXml.Replace(
             "</test-run>",
@@ -396,6 +409,13 @@ function New-UbaScenario {
                 unit_test_playmode = [ordered]@{ passed = 2; failed = 0; duration = 1.0 }
             }
             switch ($state.TestSummaryMutation) {
+                "empty_both" {
+                    $testResults.unit_test_editmode = [ordered]@{}
+                    $testResults.unit_test_playmode = [ordered]@{}
+                }
+                "partial_editmode" {
+                    $testResults.unit_test_editmode = [ordered]@{ passed = 95 }
+                }
                 "missing_editmode" { [void]$testResults.Remove("unit_test_editmode") }
                 "missing_playmode" { [void]$testResults.Remove("unit_test_playmode") }
                 "passed_zero_editmode" { $testResults.unit_test_editmode.passed = 0 }
@@ -582,6 +602,31 @@ try {
             "$($mode.File) root counters come from its assembly"
     }
 
+    $emptySummaryDirectory = Join-Path $fixtureRoot "empty-summary-artifact-fallback"
+    $emptySummary = New-UbaScenario -TestSummaryMutation empty_both
+    $emptySummaryResult = Invoke-TestClient `
+        -Scenario $emptySummary `
+        -OutputDirectory $emptySummaryDirectory
+    Assert-Equal $emptySummaryResult.BuildStatus "success" `
+        "empty UBA summaries fall back to authoritative NUnit XML"
+    foreach ($filename in @("editmode-results.xml", "playmode-results.xml")) {
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $emptySummaryDirectory $filename)) `
+            "empty UBA summaries still produce $filename"
+    }
+
+    $failedArtifact = New-UbaScenario `
+        -TestSummaryMutation empty_both `
+        -FailedEditModeArtifact
+    $null = Assert-Throws `
+        -Description "failed EditMode artifact behind an empty UBA summary" `
+        -ExpectedMessagePattern "EditMode.*artifact.*failed" `
+        -Action {
+            Invoke-TestClient `
+                -Scenario $failedArtifact `
+                -OutputDirectory (Join-Path $fixtureRoot "empty-summary-failed-artifact")
+        }
+
     $postRequest = $success.State.Requests |
         Where-Object { $_.Method -eq "POST" -and $_.Uri -match "/builds$" } |
         Select-Object -First 1
@@ -679,6 +724,7 @@ try {
     }
 
     foreach ($summaryCase in @(
+        @{ Mutation = "partial_editmode"; Pattern = "unit_test_editmode" },
         @{ Mutation = "missing_editmode"; Pattern = "unit_test_editmode" },
         @{ Mutation = "missing_playmode"; Pattern = "unit_test_playmode" },
         @{ Mutation = "passed_zero_editmode"; Pattern = "unit_test_editmode" },

@@ -157,6 +157,38 @@ function Save-CanonicalResult {
     try { $document.Save($writer) } finally { $writer.Dispose() }
 }
 
+function Assert-PassingTestAssembly {
+    param(
+        [Parameter(Mandatory = $true)][System.Xml.XmlElement]$Assembly,
+        [Parameter(Mandatory = $true)][string]$Mode
+    )
+
+    if ($Assembly.GetAttribute("result") -ne "Passed") {
+        throw "UBA $Mode test artifact failed."
+    }
+
+    $counts = @{}
+    foreach ($name in @("total", "passed", "failed", "skipped", "inconclusive")) {
+        [int64]$value = 0
+        $text = $Assembly.GetAttribute($name)
+        if ([string]::IsNullOrWhiteSpace($text) -or
+            -not [int64]::TryParse($text, [ref]$value) -or
+            $value -lt 0) {
+            throw "UBA $Mode test artifact has an invalid $name count."
+        }
+        $counts[$name] = $value
+    }
+
+    if ($counts.total -le 0 -or
+        $counts.passed -le 0 -or
+        $counts.failed -ne 0 -or
+        $counts.skipped -ne 0 -or
+        $counts.inconclusive -ne 0 -or
+        $counts.total -ne $counts.passed) {
+        throw "UBA $Mode test artifact failed."
+    }
+}
+
 function Get-DownloadBytes {
     param([Parameter(Mandatory = $true)]$File)
     $href = [string](Get-ObjectValue $File @("href"))
@@ -285,9 +317,26 @@ if ([string]::IsNullOrWhiteSpace($actualUnityVersion) -or
 }
 foreach ($testMode in @("unit_test_editmode", "unit_test_playmode")) {
     $test = Get-ObjectValue $final @("testResults", $testMode)
-    $passed = Get-ObjectValue $test @("passed")
-    $failed = Get-ObjectValue $test @("failed")
-    if ($null -eq $passed -or [int64]$passed -le 0 -or $null -eq $failed -or [int64]$failed -ne 0) {
+    if ($null -eq $test) {
+        throw "UBA $testMode result is missing or failed."
+    }
+
+    $passedProperty = $test.PSObject.Properties["passed"]
+    $failedProperty = $test.PSObject.Properties["failed"]
+    if ($null -eq $passedProperty -and
+        $null -eq $failedProperty -and
+        @($test.PSObject.Properties).Count -eq 0) {
+        continue
+    }
+
+    [int64]$passed = 0
+    [int64]$failed = 0
+    if ($null -eq $passedProperty -or
+        $null -eq $failedProperty -or
+        -not [int64]::TryParse([string]$passedProperty.Value, [ref]$passed) -or
+        -not [int64]::TryParse([string]$failedProperty.Value, [ref]$failed) -or
+        $passed -le 0 -or
+        $failed -ne 0) {
         throw "UBA $testMode result is missing or failed."
     }
 }
@@ -332,6 +381,7 @@ foreach ($contract in @(
     }
     if ($matches.Count -eq 0) { throw "UBA $($contract.Mode) test artifact is missing." }
     if ($matches.Count -ne 1) { throw "UBA test artifacts contain a duplicate $($contract.Mode) assembly." }
+    Assert-PassingTestAssembly $matches[0].Assembly $contract.Mode
     Save-CanonicalResult $matches[0].Root $matches[0].Assembly (Join-Path $output $contract.File)
 }
 
