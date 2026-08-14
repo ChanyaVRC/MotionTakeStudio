@@ -215,9 +215,10 @@ terminal statusへ到達しない、artifactが欠ける場合はfail closedで�
 EditMode 95件以上、PlayMode 2件以上、全件Passed、failed／skipped／inconclusive 0、必須E2E fullnameを再検証するため、UBAの
 build statusだけでRelease gateを開きません。
 
-packageの互換範囲はUnity 2022.3のままで、2022.3.22f1の基準結果も維持します。standalone UBA targetだけが
-2022.3.40f1なのは、22f1がUBAの削除対象になったためです。cloud CI用Editor patchは利用側projectのEditor要件を
-引き上げません。
+packageの互換範囲はUnity 2022.3のままで、standalone repositoryの`ProjectVersion.txt`は
+Unity 2022.3.22f1を維持します。
+UBA targetだけが2022.3.40f1なのは、22f1がUBAの削除対象になったためです。cloud CI用Editor patchは
+利用側projectのEditor要件を引き上げません。
 
 `Unity CI Gate`はRelease jobの必須証跡です。PR時点ではUnity回帰を検出せず、merge後の`main`でgateが
 失敗し得ます。この場合はReleaseを停止し、修正PRで復旧します。Release workflowはexact-SHA artifactの

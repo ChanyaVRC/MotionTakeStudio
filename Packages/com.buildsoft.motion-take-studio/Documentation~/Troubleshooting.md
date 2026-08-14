@@ -210,9 +210,10 @@ Dashboardの`UNITY_UBA_BUILD_TARGET_ID`に対応するConfigurationを開き、�
 なっていないか確認します。pushごとにUBA buildが2件作られる場合は、UBAのAuto-buildまたはScheduleが
 有効です。GitHub exact-SHA bridgeだけをtriggerにします。
 
-packageの対応範囲はUnity 2022.3で、既存のローカル基準結果は2022.3.22f1です。standalone repositoryの
-`ProjectVersion.txt`とUBA targetを40f1へ揃えたのは、Unityの2026年dependency更新で22f1が削除対象になった
-ためです。Auto Detectに依存せず、targetにも40f1を明示してpreflightで不一致を検出します。
+packageの対応範囲はUnity 2022.3のままで、standalone repositoryの`ProjectVersion.txt`は2022.3.22f1です。
+Unityの2026年dependency更新で
+22f1が削除対象になったため、UBA targetだけは40f1を使用します。Auto Detectに依存せず、targetへ40f1を明示して
+preflightで不一致を検出します。
 
 ### UBAはSuccessだが`Unity CI Gate`が失敗する
 

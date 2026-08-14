@@ -76,9 +76,10 @@ Unity 2022.3.22f1 で、Editor suite は **95 / 95**、Runtime PlayMode suite �
 Play Mode へ入り、NDMF なしの 6 点 Capture、Review、左肘 Hint の 10 cm 補正、Validation、Clip の
 再生確認までを通す E2E と、任意 Processor の完了通知ゲートを確認する E2E を含みます。
 
-パッケージの対応範囲はUnity 2022.3のままです。standalone repositoryのcloud CIだけは、
-Unity Build Automationで2022.3.22f1が廃止対象になったため2022.3.40f1を明示使用します。これは利用側projectの
-最低／推奨Editorを40f1へ変更するものではなく、上記95件／2件は22f1で確認した基準値です。
+パッケージの対応範囲はUnity 2022.3のままで、standalone repositoryの`ProjectVersion.txt`は
+Unity 2022.3.22f1を維持します。
+Unity Build Automationで22f1が廃止対象になったため、cloud UBA targetだけは2022.3.40f1を明示使用します。
+これは利用側projectの最低／推奨Editorを40f1へ変更するものではなく、上記95件／2件は22f1で確認した基準値です。
 
 埋め込みパッケージを含むプロジェクトルートでは、次の runner で両 assembly を逐次実行できます。
 
