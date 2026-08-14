@@ -297,10 +297,10 @@ foreach ($unsafeCredentialParameter in @("-KeyId", "-SecretKey")) {
     }
 }
 
-Assert-ContainsLiteral $projectVersionText "m_EditorVersion: 2022.3.40f1" `
-    "the Unity 2022.3.40f1 project version"
-Assert-ContainsLiteral $projectVersionText "m_EditorVersionWithRevision: 2022.3.40f1 (cbdda657d2f0)" `
-    "the immutable Unity editor revision"
+Assert-ContainsLiteral $projectVersionText "m_EditorVersion: 2022.3.22f1" `
+    "the Unity 2022.3.22f1 repository project baseline"
+Assert-ContainsLiteral $projectVersionText "m_EditorVersionWithRevision: 2022.3.22f1 (887be4894c44)" `
+    "the immutable Unity 2022.3.22f1 editor revision"
 
 $testables = @($manifest.testables)
 if ($testables -notcontains "com.buildsoft.motion-take-studio") {

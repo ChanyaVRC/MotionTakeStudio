@@ -326,11 +326,12 @@ Releaseせず修正PRを作成します。
 | 対象 | Unity | 意味 |
 |---|---|---|
 | 配布package | 2022.3 | packageの対応範囲。利用側projectを40f1へ固定しない |
-| ローカル基準 | 2022.3.22f1 | Editor 95 / 95、Runtime PlayMode 2 / 2を確認した環境 |
+| standalone repository／ローカル基準 | 2022.3.22f1 | `ProjectVersion.txt`と、Editor 95 / 95、Runtime PlayMode 2 / 2を確認した環境 |
 | standalone UBA CI | 2022.3.40f1 | UBAで22f1が廃止対象になったため使用するcloud test環境 |
 
 Unityの2026年dependency更新では、2022.3.22f1を含む旧patchがUBAの削除対象になり、2022.3.40f1は
-利用可能な例外として残ります。このためcloud targetではAuto Detectを使わず40f1を明示します。この変更は
+利用可能な例外として残ります。このためrepositoryの`ProjectVersion.txt`は22f1を維持し、cloud targetでは
+Auto Detectを使わず40f1を明示します。この変更は
 packageのUnity 2022.3互換性や、VRChat projectで使用するEditorを変更するものではありません。詳細は
 [Unityのdependency deprecation告知](https://discussions.unity.com/t/unity-devops-build-automation-2026-dependency-deprecation-cycle/1724029)
 を参照してください。
