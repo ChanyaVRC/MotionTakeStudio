@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: motion-take-studio-release
+  cancel-in-progress: false
+
 jobs:
 
   # Validate Repository Configuration
@@ -32,18 +36,63 @@ jobs:
           echo "configPackage=false" >> $GITHUB_OUTPUT;
         fi
 
-  # Run the same package-only Unity tests used on main before publishing.
-  unity-tests:
+  # Reuse only the exact protected-main push run and revalidate its NUnit XML.
+  verify-unity-ci:
     needs: config
     if: needs.config.outputs.config_package == 'true' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/unity-tests.yml
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify exact-SHA main Unity CI evidence
+        id: evidence
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $evidence = ./.github/scripts/Resolve-UnityCiEvidence.ps1 `
+            -CommitSha $env:GITHUB_SHA
+          "run_id=$($evidence.RunId)" | Out-File `
+            -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Download verified Unity CI artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unity-tests-${{ github.sha }}
+          path: artifacts
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.evidence.outputs.run_id }}
+
+      - name: Validate EditMode NUnit XML
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1
+          -ValidateResultsOnly
+          -ValidationMode EditMode
+          -ResultPath artifacts/editmode-results.xml
+
+      - name: Validate PlayMode NUnit XML
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Run-MotionTakeStudioTests.ps1
+          -ValidateResultsOnly
+          -ValidationMode PlayMode
+          -ResultPath artifacts/playmode-results.xml
 
   # Build and release the Package
   # If the repository is not configured properly, this job will be skipped
   build:
     needs:
       - config
-      - unity-tests
+      - verify-unity-ci
     runs-on: ubuntu-latest
     permissions:
       contents: write

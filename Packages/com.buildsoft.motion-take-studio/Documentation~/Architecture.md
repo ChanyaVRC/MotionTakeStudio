@@ -170,7 +170,7 @@ Editor suite には、内部で Play Mode へ遷移する NDMF なしの全経�
 完了通知ゲート E2E を含みます。
 
 GitHub Actionsの信頼境界は2段階です。Pull RequestではSecret不要のCI契約だけを実行し、UBAは
-呼び出しません。保護された`main`とReleaseだけが、`unity-ci` Environmentの
+呼び出しません。保護された`main`だけが、`unity-ci` Environmentの
 `UNITY_UBA_KEY_ID`と`UNITY_UBA_SECRET_KEY`を取得します。organization、project、build targetのIDは
 同Environmentの`UNITY_UBA_ORG_ID`、`UNITY_UBA_PROJECT_ID`、`UNITY_UBA_BUILD_TARGET_ID`という
 非Secret変数です。[GitHub Environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)の
@@ -180,12 +180,17 @@ branch protectionで保護します。
 ```mermaid
 flowchart LR
     PR["Pull Request"] --> Contract["Secret-free CI Contract"]
-    Main["Protected main / Release"] --> Env["unity-ci Environment"]
+    Main["Protected main"] --> Env["unity-ci Environment"]
     Env --> Bridge["Exact-SHA GitHub bridge"]
     Bridge --> UBA["UBA v2 / Windows Micro / Unity 2022.3.40f1"]
-    UBA --> XML["EditMode + PlayMode NUnit XML"]
-    XML --> Validator["Strict package validator"]
-    Validator --> Gate["Unity CI Gate"]
+    UBA --> Artifact["EditMode + PlayMode NUnit artifact"]
+    Artifact --> MainValidator["Strict main validator"]
+    MainValidator --> Gate["Unity CI Gate"]
+    Release["Release"] --> Evidence["Exact run / attempt / jobs / artifact"]
+    Gate --> Evidence
+    Artifact --> Evidence
+    Evidence --> ReleaseValidator["Strict release validator"]
+    ReleaseValidator --> Publish["Publish"]
 ```
 
 Unity Cloudサービスアカウントには、対象projectのtarget設定読取、build開始、status／artifact読取、timeout時の
@@ -200,7 +205,8 @@ UBA targetはbranch `main`、Windows Micro、Unity 2022.3.40f1、EditMode／Play
 固定します。Auto-buildとScheduleはOffです。さらにplayer exportを
 `settings.advanced.unity.playerExporter.export=false`へ設定したunit-test-only／Content-only targetとし、
 Playerやscene buildをCI成功条件にしません。GitHub bridgeだけがbuildを開始するため、push webhookによる
-二重実行を避け、Releaseでは同じ`main` commitを明示的に再検証できます。
+二重実行を避けます。ReleaseではUBAを再実行せず、正規workflow ID／path、`push/main`、完全一致SHA、
+最新attemptの3必須job、唯一の未失効artifactをread-only Actions APIで検証します。
 
 bridgeは要求した完全な`GITHUB_SHA`とUBA buildのSCM commitを照合します。statusがSuccessでもSHAが違う、
 terminal statusへ到達しない、artifactが欠ける場合はfail closedです。取得した
@@ -213,10 +219,10 @@ packageの互換範囲はUnity 2022.3のままで、2022.3.22f1の基準結果�
 2022.3.40f1なのは、22f1がUBAの削除対象になったためです。cloud CI用Editor patchは利用側projectのEditor要件を
 引き上げません。
 
-`Unity CI Gate`はRelease jobの必須依存です。PR時点ではUnity回帰を検出せず、merge後の`main`でgateが
-失敗し得ます。この場合はReleaseを停止し、修正PRで復旧します。Release workflowは公開直前にも同じUnity
-suiteを再実行します。Auto-build Off、Concurrency cap 1、build minutesの支出上限により、信頼境界と
-実行コストを同じ入口で管理します。
+`Unity CI Gate`はRelease jobの必須証跡です。PR時点ではUnity回帰を検出せず、merge後の`main`でgateが
+失敗し得ます。この場合はReleaseを停止し、修正PRで復旧します。Release workflowはexact-SHA artifactの
+EditMode／PlayMode XMLを同じvalidatorへ再投入し、新しいUBA buildを作りません。Auto-build Off、Concurrency cap 1、
+build minutesの支出上限により、信頼境界と実行コストを同じ入口で管理します。
 
 この 2 層は決定論的な自動回帰テストです。SteamVR／OpenVR の実デバイス列挙、実際の tracker role、
 任意の NDMF Apply on Play、MA／VRCFury などによる Avatar の再生成は、接続機器と実アバターが必要なため

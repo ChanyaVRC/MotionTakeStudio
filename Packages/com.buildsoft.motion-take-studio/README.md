@@ -98,11 +98,11 @@ fullname があり、EditModeは95件以上、PlayModeは2件以上で、対象 
 `"testables": ["com.buildsoft.motion-take-studio"]` も追加し、runner へ `-ProjectPath` を明示してください。
 詳しい GUI／CLI 手順は[導入・記録・レビューガイド](Documentation~/GettingStarted.md)にあります。
 
-GitHub ActionsではPull Requestに対してSecret不要のrunner／workflow契約だけを検証し、`main`へのpushと
-ReleaseのworkflowはUnity Build Automation v2のWindows Micro targetで両Unity suiteを実行する構成です。targetは
-Auto-buildとplayer exportを無効にしたunit-test-only／Content-only構成で、full commit SHAへ固定したGitHub
-workflowだけがbuildを開始します。取得したEditMode／
-PlayMode XMLは上記runnerの`-ValidateResultsOnly`で再検証され、0件、skip、inconclusive、assembly不一致、
+GitHub ActionsではPull Requestに対してSecret不要のrunner／workflow契約だけを検証し、保護された`main`への
+pushまたはmainからの手動実行だけがUnity Build Automation v2のWindows Micro targetで両Unity suiteを実行します。targetはAuto-buildと
+player exportを無効にしたunit-test-only／Content-only構成です。ReleaseはUBAを再実行せず、正規workflowの
+`push/main`、完全一致commit SHA、最新attemptの3必須job、唯一の未失効artifactをread-only APIで確認します。
+取得したEditMode／PlayMode XMLは上記runnerの`-ValidateResultsOnly`で再検証され、0件、skip、inconclusive、assembly不一致、
 必須E2E欠落、要求SHAとbuild SHAの不一致があればReleaseも失敗します。GitHubへUnity accountのlogin、
 password、licenseファイルは保存しません。詳細は
 [導入・記録・レビューガイド](Documentation~/GettingStarted.md#github-actions-と-unity-build-automation-v2)を参照してください。

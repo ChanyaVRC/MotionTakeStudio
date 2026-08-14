@@ -55,6 +55,8 @@ $workflowPath = Join-Path $repositoryRoot ".github/workflows/unity-tests.yml"
 $releasePath = Join-Path $repositoryRoot ".github/workflows/release.yml"
 $ubaClientPath = Join-Path $repositoryRoot ".github/scripts/Invoke-UnityBuildAutomation.ps1"
 $ubaClientTestPath = Join-Path $packageRoot "Tools~/Tests/Test-UnityBuildAutomationClient.ps1"
+$evidenceClientPath = Join-Path $repositoryRoot ".github/scripts/Resolve-UnityCiEvidence.ps1"
+$evidenceClientTestPath = Join-Path $packageRoot "Tools~/Tests/Test-UnityCiEvidence.ps1"
 $manifestPath = Join-Path $repositoryRoot "Packages/manifest.json"
 $projectVersionPath = Join-Path $repositoryRoot "ProjectSettings/ProjectVersion.txt"
 $packageManifestPath = Join-Path $packageRoot "package.json"
@@ -64,6 +66,8 @@ foreach ($requiredPath in @(
     $runnerPath,
     $workflowPath,
     $releasePath,
+    $evidenceClientPath,
+    $evidenceClientTestPath,
     $packageManifestPath,
     $packagesIgnorePath,
     $manifestPath,
@@ -164,14 +168,20 @@ foreach ($ubaPath in @($ubaClientPath, $ubaClientTestPath)) {
 }
 
 $ubaClientText = Get-Content -LiteralPath $ubaClientPath -Raw
+$evidenceClientText = Get-Content -LiteralPath $evidenceClientPath -Raw
 
 Assert-ContainsLiteral $workflowText "pull_request:" "the pull-request trigger"
-Assert-ContainsLiteral $workflowText "workflow_call:" "the reusable release trigger"
+if ($workflowText.Contains("workflow_call:", [System.StringComparison]::Ordinal)) {
+    throw "Unity CI must not expose a reusable release trigger after exact-SHA evidence reuse is enabled."
+}
 Assert-ContainsLiteral $workflowText "./.github/scripts/Invoke-UnityBuildAutomation.ps1" `
     "the repository-owned Unity Build Automation client"
 Assert-ContainsLiteral $workflowText `
     "./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityBuildAutomationClient.ps1" `
     "the secret-free UBA client fixture suite"
+Assert-ContainsLiteral $workflowText `
+    "./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityCiEvidence.ps1" `
+    "the secret-free exact-SHA evidence fixture suite"
 Assert-ContainsLiteral $workflowText "-ValidateResultsOnly" `
     "post-download NUnit XML validation"
 Assert-ContainsLiteral $workflowText "-ResultPath artifacts/editmode-results.xml" `
@@ -297,19 +307,119 @@ if ($testables -notcontains "com.buildsoft.motion-take-studio") {
     throw "Packages/manifest.json must expose com.buildsoft.motion-take-studio through testables."
 }
 
-Assert-ContainsLiteral $releaseText "uses: ./.github/workflows/unity-tests.yml" `
-    "the release-to-Unity-CI dependency"
+if ($releaseText.Contains("uses: ./.github/workflows/unity-tests.yml", [System.StringComparison]::Ordinal)) {
+    throw "Release must reuse exact-SHA Unity CI evidence instead of launching another UBA build."
+}
+Assert-ContainsLiteral $releaseText "verify-unity-ci:" `
+    "the release exact-SHA Unity CI evidence job"
+Assert-ContainsLiteral $releaseText "actions: read" `
+    "read-only access to workflow runs and artifacts"
+Assert-ContainsLiteral $releaseText "./.github/scripts/Resolve-UnityCiEvidence.ps1" `
+    "the release exact-SHA evidence verifier"
+Assert-ContainsLiteral $releaseText 'GITHUB_TOKEN: ${{ github.token }}' `
+    "the verifier's repository-scoped token"
+Assert-ContainsLiteral $releaseText '-CommitSha $env:GITHUB_SHA' `
+    "the immutable release commit passed to the verifier"
+Assert-ContainsLiteral $releaseText `
+    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" `
+    "the full-SHA-pinned exact-run artifact downloader"
+Assert-ContainsLiteral $releaseText 'run-id: ${{ steps.evidence.outputs.run_id }}' `
+    "the verified workflow run id"
+Assert-ContainsLiteral $releaseText 'name: unity-tests-${{ github.sha }}' `
+    "the exact-SHA Unity result artifact"
+Assert-ContainsLiteral $releaseText "-ValidationMode EditMode" `
+    "strict release EditMode XML validation"
+Assert-ContainsLiteral $releaseText "-ValidationMode PlayMode" `
+    "strict release PlayMode XML validation"
+Assert-ContainsLiteral $releaseText "-ResultPath artifacts/editmode-results.xml" `
+    "the release EditMode evidence path"
+Assert-ContainsLiteral $releaseText "-ResultPath artifacts/playmode-results.xml" `
+    "the release PlayMode evidence path"
 Assert-MatchesPattern $releaseText `
-    '(?ms)^  unity-tests:\r?\n    needs: config\r?\n    if: needs\.config\.outputs\.config_package == ''true'' && github\.ref == ''refs/heads/main''\r?\n    uses: \./\.github/workflows/unity-tests\.yml\r?$' `
-    "the release Unity test job's valid-package and main-branch gate"
+    '(?ms)^  verify-unity-ci:\r?\n    needs: config\r?\n    if: needs\.config\.outputs\.config_package == ''true'' && github\.ref == ''refs/heads/main''\r?$' `
+    "the release evidence job's valid-package and main-branch gate"
+
+$releaseEvidenceJobMatch = [regex]::Match(
+    $releaseText,
+    '(?ms)^  verify-unity-ci:\r?\n(?<body>.*?)^  # Build and release the Package\r?$'
+)
+if (-not $releaseEvidenceJobMatch.Success) {
+    throw "CI contract cannot isolate the release evidence job."
+}
+$releaseEvidenceJob = $releaseEvidenceJobMatch.Groups['body'].Value
+Assert-MatchesPattern $releaseEvidenceJob `
+    '(?ms)^    permissions:\r?\n      actions: read\r?\n      contents: read\r?$' `
+    "the release evidence job's read-only permissions"
+foreach ($forbiddenEvidenceToken in @(
+    "write",
+    "secrets.",
+    "environment: unity-ci",
+    "Invoke-UnityBuildAutomation.ps1"
+)) {
+    if ($releaseEvidenceJob.Contains($forbiddenEvidenceToken, [System.StringComparison]::Ordinal)) {
+        throw "Release evidence job crossed its read-only trust boundary: $forbiddenEvidenceToken"
+    }
+}
+foreach ($requiredEvidenceToken in @(
+    "./.github/scripts/Resolve-UnityCiEvidence.ps1",
+    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    'run-id: ${{ steps.evidence.outputs.run_id }}',
+    'name: unity-tests-${{ github.sha }}',
+    "-ValidationMode EditMode",
+    "-ResultPath artifacts/editmode-results.xml",
+    "-ValidationMode PlayMode",
+    "-ResultPath artifacts/playmode-results.xml"
+)) {
+    Assert-ContainsLiteral $releaseEvidenceJob $requiredEvidenceToken `
+        "the release evidence job token $requiredEvidenceToken"
+}
+$releaseEvidenceOrder = @(
+    $releaseEvidenceJob.IndexOf("Resolve-UnityCiEvidence.ps1", [StringComparison]::Ordinal),
+    $releaseEvidenceJob.IndexOf("actions/download-artifact@", [StringComparison]::Ordinal),
+    $releaseEvidenceJob.IndexOf("-ValidationMode EditMode", [StringComparison]::Ordinal),
+    $releaseEvidenceJob.IndexOf("-ValidationMode PlayMode", [StringComparison]::Ordinal)
+)
+for ($index = 0; $index -lt $releaseEvidenceOrder.Count; $index++) {
+    if ($releaseEvidenceOrder[$index] -lt 0 -or
+        ($index -gt 0 -and $releaseEvidenceOrder[$index] -le $releaseEvidenceOrder[$index - 1])) {
+        throw "Release must verify the run, download the artifact, then validate EditMode and PlayMode in order."
+    }
+}
 Assert-ContainsLiteral $releaseText "refs/heads/main" "the main-only release guard"
 Assert-ContainsLiteral $releaseText "persist-credentials: false" `
     "release checkout credential cleanup"
-if ($releaseText.Contains("secrets: inherit", [System.StringComparison]::Ordinal)) {
-    throw "The release workflow must rely only on the reusable workflow's unity-ci Environment secrets."
+foreach ($forbiddenReleaseToken in @(
+    "secrets: inherit",
+    "UNITY_UBA_KEY_ID",
+    "UNITY_UBA_SECRET_KEY",
+    "environment: unity-ci"
+)) {
+    if ($releaseText.Contains($forbiddenReleaseToken, [System.StringComparison]::Ordinal)) {
+        throw "Release evidence reuse must not receive UBA credentials: $forbiddenReleaseToken"
+    }
 }
 Assert-MatchesPattern $releaseText `
-    '(?ms)^  build:\r?\n.*?^    needs:\r?\n      - config\r?\n      - unity-tests\r?$' `
-    "the release build's dependency on Unity tests"
+    '(?ms)^  build:\r?\n.*?^    needs:\r?\n      - config\r?\n      - verify-unity-ci\r?$' `
+    "the release build's dependency on verified exact-SHA Unity evidence"
+
+foreach ($evidenceLiteral in @(
+    '$env:GITHUB_TOKEN',
+    'ChanyaVRC/MotionTakeStudio',
+    '.github/workflows/unity-tests.yml',
+    '333412576',
+    'CI Contract',
+    'Unity EditMode + PlayMode',
+    'Unity CI Gate',
+    'event=push',
+    'branch=main',
+    'attempts/$runAttempt/jobs',
+    'unity-tests-$CommitSha'
+)) {
+    Assert-ContainsLiteral $evidenceClientText $evidenceLiteral `
+        "the exact-SHA evidence invariant $evidenceLiteral"
+}
+if ([regex]::IsMatch($evidenceClientText, '(?m)^\s*Method\s*=\s*"(POST|PUT|PATCH|DELETE)"')) {
+    throw "The release evidence verifier must only issue read-only GitHub API requests."
+}
 
 Write-Host "Unity Build Automation workflow contract passed."

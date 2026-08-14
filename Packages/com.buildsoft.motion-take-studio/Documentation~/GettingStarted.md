@@ -308,15 +308,18 @@ XML と `.log` を artifact として保存してください。
 
 1. Pull RequestではSecretを渡さず、runnerのXML判定とworkflow構成だけを検証します。Unity Build
    Automation（UBA）は呼び出しません。
-2. 保護された`main`へのpush、`main`からの手動実行、Releaseでは、`unity-ci` Environmentの
-   Unity Cloudサービスアカウントを使い、`.github/scripts/Invoke-UnityBuildAutomation.ps1`から
-   UBA v2 buildを開始します。
+2. 保護された`main`へのpushと`main`からの手動実行では、`unity-ci` EnvironmentのUnity Cloud
+   サービスアカウントを使い、`.github/scripts/Invoke-UnityBuildAutomation.ps1`からUBA v2 buildを開始します。
+3. ReleaseはUBAを再実行せず、同じSHAの正規`main` push runとNUnit XML artifactをread-onlyで再検証します。
 
-UBAのAuto-buildは無効です。GitHub workflowだけを入口にすることで、同じpushに対する二重buildを防ぎ、
-Release時には同じ`main` commitを意図的に再検証できます。bridgeは要求した完全なGit commit SHAとUBAが
-checkoutしたSHAを照合し、過去の成功buildやbranch headが異なるbuildを再利用しません。Pull Request上の
+手動実行は診断用で、Release証跡として受け入れるのは`event=push`のrunだけです。
+
+UBAのAuto-buildは無効です。GitHub workflowだけを入口にすることで、同じpushに対する二重buildを防ぎます。
+Releaseの`.github/scripts/Resolve-UnityCiEvidence.ps1`は、正規workflow ID／path、`push/main`、完全一致SHA、
+最新attemptの3必須job、唯一の未失効artifactをすべて照合します。過去の成功build、PR上の同名Gate、
+branch headが異なるbuildは再利用しません。Pull Request上の
 `CI Contract`成功はUnityテスト成功を意味しないため、merge後の`main`で`Unity CI Gate`を確認し、失敗時は
-Releaseせず修正PRを作成します。Release workflow自身も同じUnity suiteを再実行します。
+Releaseせず修正PRを作成します。
 
 #### Unityバージョンの役割を分ける
 
@@ -411,8 +414,9 @@ PlayModeは2件以上、`passed == total`、`failed == skipped == inconclusive =
 結果、途中までのXML、古いartifactをRelease成功として扱いません。
 
 未信頼のPull RequestへサービスアカウントSecretを渡す`pull_request_target`や、PR SHAをcheckoutする
-特権workflowは使用しません。`.github/workflows/release.yml`も同じreusable workflowを呼び、
-`Unity CI Gate`が成功した`main`以外からはpackageを公開できません。ローカルrunner、bridge、CI契約テストには
+特権workflowは使用しません。`.github/workflows/release.yml`は`actions: read`でexact-SHA runの証跡を取得し、
+同じ厳格validatorへ再投入します。Artifactが欠落・失効している場合は、対象`main` push runを再実行してから
+Releaseを再dispatchします。ローカルrunner、bridge、CI契約テストには
 PowerShell 7以降の`pwsh`が必要です。
 
 #### 無料枠と支出上限を設定する
@@ -428,7 +432,8 @@ Build Consumptionを基準にしてください。
 4. Test XML／logに必要な最短のartifact retentionを設定し、初回clean build後に実際の消費分数を確認します。
 
 設定方法は[UBAのconsumption cost管理](https://docs.unity.com/en-us/build-automation/manage-consumption-costs)を
-参照してください。clean build、手動Replay、Release前の再検証もbuild分数を消費します。
+参照してください。clean buildと手動Replayはbuild分数を消費しますが、Releaseの証跡再検証は新しいUBA buildを
+作らないためWindows Micro分を追加消費しません。
 
 ### 実機 Integration は別に確認する
 
