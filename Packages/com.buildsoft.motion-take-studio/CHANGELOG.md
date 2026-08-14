@@ -3,7 +3,8 @@
 ## [0.1.1] - 2026-08-13
 
 - Added SHA-pinned GitHub Actions automation. Pull requests run secret-free CI contract tests; protected `main`
-  and releases use a repository-owned bridge to invoke Unity Build Automation v2 and archive its test results.
+  invokes Unity Build Automation v2 and archives its test results. Releases reuse the exact-SHA successful `main`
+  run and revalidate its NUnit XML instead of spending another Windows Micro build.
 - Replaced hosted Unity license activation with a least-privilege Unity Cloud service account. Protected jobs read
   `UNITY_UBA_KEY_ID` and `UNITY_UBA_SECRET_KEY` only from the `unity-ci` Environment, while organization, project,
   and build-target IDs are non-secret Environment variables.

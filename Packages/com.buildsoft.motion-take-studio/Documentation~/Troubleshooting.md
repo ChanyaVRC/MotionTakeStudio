@@ -244,10 +244,22 @@ failed／skipped／inconclusive 0、必須E2E fullnameを確認します。UBA�
 Editor 95 / 95、Runtime PlayMode 2 / 2です。40f1の件数を新しい基準として記載するのは、実際のUBA XMLを
 検証した後にしてください。
 
+### Releaseでexact-SHA Unity CI evidenceが見つからない
+
+ReleaseはUBAを再実行せず、正規`unity-tests.yml`の`push/main` runを完全な`GITHUB_SHA`で検索します。
+最新attemptの`CI Contract`、`Unity EditMode + PlayMode`、`Unity CI Gate`がすべて成功し、
+`unity-tests-<SHA>` artifactが唯一・未失効・非emptyでなければfail closedです。PRの同名Gate、手動dispatch、
+別branch、別SHA、失効artifactは受け入れません。
+
+Artifactの保持期間は14日です。対象SHAが現在の`main`で、artifactだけが失効している場合は、そのSHAの元の
+`push` workflow runをGitHub Actionsから**Re-run all jobs**し、新しいattemptが成功してからReleaseを再dispatchします。
+Release jobは取得後にEditMode 95件以上／PlayMode 2件以上のstrict XML validationも再実行します。
+
 ### UBAの無料枠が想定より早く減る
 
-2026年の無料枠はorganizationごとに月200 Windows Micro分ですが、clean build、手動Replay、Release直前の
-再検証も消費に含まれます。Dashboardの**Build Automation > Settings > Build Consumption**で次を確認します。
+2026年の無料枠はorganizationごとに月200 Windows Micro分です。clean buildと手動Replayは消費に含まれますが、
+Releaseは既存のexact-SHA artifactを再検証するため新しいUBA分を消費しません。Dashboardの
+**Build Automation > Settings > Build Consumption**で次を確認します。
 
 - Build minutes monthly capが有効で、追加支出が`$0`または許容額に制限されている
 - Monthly cap reminderが支出上限より低い値に設定されている

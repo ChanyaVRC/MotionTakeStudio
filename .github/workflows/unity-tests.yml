@@ -6,7 +6,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
@@ -34,6 +33,12 @@ jobs:
           ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityBuildAutomationClient.ps1
           -RepositoryRoot .
 
+      - name: Test exact-SHA Unity CI evidence verifier
+        shell: pwsh
+        run: >-
+          ./Packages/com.buildsoft.motion-take-studio/Tools~/Tests/Test-UnityCiEvidence.ps1
+          -RepositoryRoot .
+
       - name: Test workflow contract
         shell: pwsh
         run: >-
@@ -48,7 +53,7 @@ jobs:
           -SelfTest
 
   # The UBA service-account credentials never reach pull-request code. This lane
-  # runs only after review on protected main, and again before a release.
+  # runs only after review on protected main. Release reuses its exact-SHA artifact.
   unity:
     name: Unity EditMode + PlayMode
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

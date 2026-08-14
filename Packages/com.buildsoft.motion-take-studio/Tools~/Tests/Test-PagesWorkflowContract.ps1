@@ -215,7 +215,7 @@ if ($SelfTest) {
             param([string]$Text)
             return [regex]::Replace(
                 $Text,
-                "(?m)^(    steps:\r?\n)(      - name: Setup Pages)$",
+                "(?m)^(    steps:\r?\n)(      - name: Setup Pages)\r?$",
                 "`${1}      - name: Execute checked-out builder code`n        run: ./ci/build.cmd`n`n`${2}",
                 1
             )
