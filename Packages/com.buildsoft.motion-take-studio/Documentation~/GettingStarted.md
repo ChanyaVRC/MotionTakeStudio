@@ -44,6 +44,22 @@ OpenVR がなくてもパッケージ自体はコンパイルできますが、�
 `Humanoid Animator` には Prefab アセットではなく、現在のシーン上に存在する
 `Animator` を指定します。`Animator.avatar` が有効で Humanoid でなければ開始できません。
 
+ヘッダーは現在のフェーズと次の作業を表示します。その下の **Setup → Capture → Review**
+レールでワークフロー上の現在地を確認できます。ライト／ダークの Unity テーマに対応し、
+セッション、トラッカー、タイムライン、ポーズ補正、検証を独立したカードとして表示します。
+
+主要操作は現在のフェーズに応じて 1 つだけ表示されます。
+
+| フェーズ | 主要操作 |
+|---|---|
+| Idle／Error | **Prepare Capture**／**Retry Prepare** |
+| Ready | **Start Recording** |
+| Recording | **Stop & Review** |
+| Reviewing | **Save Take & Exit** |
+| Preparing／Saving | **Preparing…**／**Saving…** の進行表示（操作不可） |
+
+中断可能なフェーズでは **Cancel** が副操作として表示されます。
+
 ## 3. トラッカーのロール
 
 利用できるロールは次の 11 種類です。
@@ -68,8 +84,10 @@ Generic Tracker は、未使用ロールへ次の順で暫定割り当てされ�
 同じ Role API で扱えますが、点数だけでは Record 可否を判定しません。最低条件は有効な
 Head／LeftHand／RightHand で、追加 Role は任意です。
 
-Play Mode の **Ready** 後に **Refresh Tracked Devices** を押し、各シリアル番号のロールを
-ドロップダウンで設定してください。API からは `ITrackerPoseProvider.AssignRole` も利用できます。
+Play Mode の **Ready** 後に **Refresh devices** を押します。Tracker roles カードの各行で、
+**Connected／Offline**、Device Class、デバイス ID、割り当てロールをまとめて確認できます。
+Ready 中はドロップダウンでロールを変更でき、Recording 中は誤操作を防ぐため読み取り専用です。
+API からは `ITrackerPoseProvider.AssignRole` も利用できます。
 具体例は [API・データモデル](APIReference.md#トラッカープロバイダー)にあります。
 
 ## 4. Play Capture
@@ -77,12 +95,12 @@ Play Mode の **Ready** 後に **Refresh Tracked Devices** を押し、各シリ
 1. Edit Mode で対象の Humanoid `Animator` を選びます。
 2. Lyuma Av3 Emulator や Gesture Manager が有効なら停止します。既知のクローン競合が
    見つかると、Motion Take Studio は Capture を開始しません。
-3. **Prepare Play Capture** を押します。
+3. **Prepare Capture** を押します。
 4. ツールが一時的な additive Scene とアバターの Clone を作ります。任意の NDMF Apply on Play を
    安全に開始できる場合だけ `AvatarActivator` を追加し、それ以外は通常 Clone を使います。
 5. 状態が **Ready** になるまで待ちます。任意処理を開始した場合は完了通知後、通常 Clone の場合は
    そのまま、再取得した Animator と必要な Humanoid Bone が 2 フレーム連続で安定すると Ready になります。
-6. **Record** を押します。HumanPose とトラッカー姿勢は 60 Hz で記録されます。
+6. **Start Recording** を押します。HumanPose とトラッカー姿勢は 60 Hz で記録されます。
 7. 動きを終えたら **Stop & Review** を押します。
 
 少なくとも 1 フレームを記録してください。0 フレームの Take は AnimationClip に
@@ -95,8 +113,10 @@ Stop & Review 後にスクラブしてください。
 ## 5. Review とオーバーレイ
 
 Review では `Frame` スライダーでフレームを移動し、検証項目をクリックすると該当フレームへ
-ジャンプできます。Stop & Review 直後から末尾フレームが Scene View へ反映されます。
+ジャンプできます。**First／Previous／Next／Last** でも移動できます。
+Stop & Review 直後から末尾フレームが Scene View へ反映されます。
 
+**Solve stages** の各トグルは独立しており、複数ステージを重ねて比較できます。
 Scene View の表示切り替えは次のとおりです。
 
 - **Raw**: 接続・有効・キャリブレーション済みの生トラッカー姿勢
@@ -159,7 +179,10 @@ Animator Root の直接補正ではありません。最終クリップは Human
 
 ## 7. 検証
 
-Stop & Review 時に検証が走り、問題はフレーム付きのボタンとして表示されます。
+Stop & Review 時に検証が走ります。Validation カードの見出しに **Error／Warning／Info**
+それぞれの件数が表示され、各項目も重要度ごとのアイコンとスタイルで区別されます。
+項目はフレーム付きのボタンで、クリックすると該当フレームへ移動します。
+問題がない場合は **Take validation passed** と表示されます。
 標準 Capture で確認される主な項目は次のとおりです。
 
 - NaN / Infinity を含む姿勢
@@ -175,7 +198,7 @@ Bend Direction、IK 警告は発生した各フレームへ紐づけます。検
 
 ## 8. 保存と書き出し
 
-**Save & Exit** は次の処理を行います。
+**Save Take & Exit** は次の処理を行います。
 
 1. `.mttake` を `Assets/MotionTakeStudio/Takes` に一意名で保存
 2. Recipe、検証項目、補正済み HumanPose を Pending Export として保持

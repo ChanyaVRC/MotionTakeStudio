@@ -32,14 +32,26 @@ Scene View でポーズ補正を確認して、バージョン付きの Humanoid
 
 インストール後、**Tools > BuildSoft > Motion Take Studio** を開きます。
 
+## ウィンドウの見方
+
+上部の **Setup → Capture → Review** レールは現在地を示し、ヘッダーはセッション状態と
+次に行う作業を表示します。操作ミスを減らすため、各フェーズの主要ボタンは
+**Prepare Capture**、**Start Recording**、**Stop & Review**、**Save Take & Exit** のいずれか
+1 つだけです。処理中は進行状態が表示され、中断可能なときだけ **Cancel** が副操作として
+表示されます。
+
+- **Tracker roles**: 接続中／オフライン、Device Class、ID、割り当てロールを 1 行ごとに確認
+- **Solve stages**: Review 中に Raw／IK／Auto／Manual を個別に切り替えて比較
+- **Validation**: Error／Warning／Info の件数と重要度を区別し、項目から対象フレームへ移動
+
 ## 最短の記録手順
 
 1. Edit Mode で、シーン上の Humanoid `Animator` を選択します。
-2. **Prepare Play Capture** を押し、状態が **Ready** になるまで待ちます。
-3. **Record** を押して動きを記録します。
+2. **Prepare Capture** を押し、状態が **Ready** になるまで待ちます。
+3. **Start Recording** を押して動きを記録します。
 4. 少なくとも 1 フレーム記録してから **Stop & Review** を押します。
 5. Review 中にフレームをスクラブし、Scene View のハンドルで補正します。
-6. **Save & Exit** を押します。Edit Mode に戻ると、Take、Recipe、検証レポート、
+6. **Save Take & Exit** を押します。Edit Mode に戻ると、Take、Recipe、検証レポート、
    Auto／Corrected／Manual のクリップが生成されます。
 
 詳しい手順は [導入・記録・レビューガイド](Documentation~/GettingStarted.md)を参照してください。

@@ -8,6 +8,7 @@ namespace BuildSoft.MotionTakeStudio.Editor
     public sealed class MotionTakeStudioWindow : EditorWindow
     {
         private const int DefaultInfluenceFrames = 12;
+        private static readonly string[] WorkflowLabels = { "1  Setup", "2  Capture", "3  Review" };
 
         [SerializeField] private Animator _sourceAvatar;
         [SerializeField] private int _reviewFrame;
@@ -20,13 +21,18 @@ namespace BuildSoft.MotionTakeStudio.Editor
         private IMotionTakeStudioSession _session;
         private MotionTakeSceneHandleController _sceneHandles;
         private string _operationError;
+        private MotionTakeStudioStyles _styles;
+        private bool _stylesUseDarkTheme;
+        private readonly GUIContent _trackerLabel = new GUIContent();
 
         [MenuItem("Tools/BuildSoft/Motion Take Studio")]
         public static void Open()
         {
             var window = GetWindow<MotionTakeStudioWindow>();
-            window.titleContent = new GUIContent("Motion Take Studio");
-            window.minSize = new Vector2(420f, 560f);
+            window.titleContent = new GUIContent(
+                "Motion Take Studio",
+                EditorGUIUtility.IconContent("Animation.Record").image);
+            window.minSize = new Vector2(460f, 620f);
             window.Show();
         }
 
@@ -49,131 +55,235 @@ namespace BuildSoft.MotionTakeStudio.Editor
             BindSession(null);
             _sceneHandles?.Dispose();
             _sceneHandles = null;
+            _styles?.Dispose();
+            _styles = null;
         }
 
         private void OnGUI()
         {
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            DrawAvatarSelection();
-            EditorGUILayout.Space(6f);
-            DrawSessionStatus();
-            DrawSessionControls();
+            EnsureStyles();
+            var presentation = _session == null
+                ? MotionTakeStudioPresentation.Disconnected
+                : MotionTakeStudioPresentation.ForPhase(_session.Phase);
 
-            if (_session != null && _session.Phase == MotionTakeSessionPhase.Reviewing)
+            EditorGUI.DrawRect(new Rect(Vector2.zero, position.size), _styles.Palette.Window);
+            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
+            EditorGUILayout.Space(12f);
+            using (new EditorGUILayout.HorizontalScope())
             {
-                EditorGUILayout.Space(10f);
-                DrawReviewControls();
-                EditorGUILayout.Space(10f);
-                DrawAuthoringControls();
-                EditorGUILayout.Space(10f);
-                DrawValidationIssues();
-            }
+                GUILayout.Space(12f);
+                using (new EditorGUILayout.VerticalScope())
+                {
+                    DrawHero(presentation);
+                    EditorGUILayout.Space(8f);
+                    DrawWorkflowRail(presentation.ActiveStep);
+                    EditorGUILayout.Space(8f);
+                    DrawSessionCard(presentation);
 
-            if (_session != null &&
-                (_session.Phase == MotionTakeSessionPhase.Ready ||
-                 _session.Phase == MotionTakeSessionPhase.Recording))
-            {
-                EditorGUILayout.Space(10f);
-                DrawTrackerRoles();
-            }
+                    if (presentation.ShowTrackers)
+                    {
+                        EditorGUILayout.Space(8f);
+                        DrawTrackerRoles();
+                    }
 
+                    if (presentation.ShowReview)
+                    {
+                        EditorGUILayout.Space(8f);
+                        DrawReviewControls();
+                        EditorGUILayout.Space(8f);
+                        DrawAuthoringControls();
+                        EditorGUILayout.Space(8f);
+                        DrawValidationIssues();
+                    }
+
+                    EditorGUILayout.Space(16f);
+                }
+                GUILayout.Space(12f);
+            }
             EditorGUILayout.EndScrollView();
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Space(12f);
+                using (new EditorGUILayout.VerticalScope())
+                {
+                    DrawPrimaryActions(presentation);
+                    GUILayout.Space(12f);
+                }
+                GUILayout.Space(12f);
+            }
             BindSceneHandles();
         }
 
-        private void DrawAvatarSelection()
+        private void EnsureStyles()
         {
-            EditorGUILayout.LabelField("Capture Avatar", EditorStyles.boldLabel);
-            using (new EditorGUI.DisabledScope(_session != null &&
-                                               _session.Phase != MotionTakeSessionPhase.Idle &&
-                                               _session.Phase != MotionTakeSessionPhase.Error))
+            var darkTheme = EditorGUIUtility.isProSkin;
+            if (_styles != null && _stylesUseDarkTheme == darkTheme)
             {
-                _sourceAvatar = (Animator)EditorGUILayout.ObjectField(
-                    "Humanoid Animator",
-                    _sourceAvatar,
-                    typeof(Animator),
-                    true);
-            }
-
-            if (_sourceAvatar != null &&
-                (_sourceAvatar.avatar == null || !_sourceAvatar.avatar.isValid || !_sourceAvatar.avatar.isHuman))
-            {
-                EditorGUILayout.HelpBox("Select an Animator with a valid Humanoid Avatar.", MessageType.Error);
-            }
-        }
-
-        private void DrawSessionStatus()
-        {
-            EditorGUILayout.LabelField("Session", EditorStyles.boldLabel);
-            if (_session == null)
-            {
-                EditorGUILayout.HelpBox(
-                    "Capture is not connected yet. The capture coordinator registers through " +
-                    "MotionTakeStudioSessionBridge.",
-                    MessageType.Info);
                 return;
             }
 
-            EditorGUILayout.LabelField("State", ObjectNames.NicifyVariableName(_session.Phase.ToString()));
-            var status = string.IsNullOrWhiteSpace(_operationError)
-                ? _session.StatusMessage
-                : _operationError;
-            if (!string.IsNullOrWhiteSpace(status))
+            _styles?.Dispose();
+            _styles = MotionTakeStudioStyles.Create(darkTheme);
+            _stylesUseDarkTheme = darkTheme;
+        }
+
+        private void DrawHero(MotionTakeStudioPhasePresentation presentation)
+        {
+            using (new EditorGUILayout.VerticalScope(_styles.Header))
             {
-                EditorGUILayout.HelpBox(
-                    status,
-                    string.IsNullOrWhiteSpace(_operationError) ? MessageType.None : MessageType.Error);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    using (new EditorGUILayout.VerticalScope())
+                    {
+                        GUILayout.Label("MOTION TAKE STUDIO", _styles.HeaderEyebrow);
+                        GUILayout.Label(presentation.Title, _styles.HeaderTitle);
+                        GUILayout.Label(presentation.Description, _styles.HeaderDescription);
+                    }
+
+                    GUILayout.Space(12f);
+                    var statusState = _styles.StatusPill.normal;
+                    var previousStatusColor = statusState.textColor;
+                    try
+                    {
+                        statusState.textColor = ResolveStatusColor();
+                        GUILayout.Label(
+                            $"●  {ResolveStatusLabel()}",
+                            _styles.StatusPill,
+                        GUILayout.Width(Mathf.Clamp(position.width * 0.25f, 112f, 152f)));
+                    }
+                    finally
+                    {
+                        statusState.textColor = previousStatusColor;
+                    }
+                }
             }
         }
 
-        private void DrawSessionControls()
+        private void DrawWorkflowRail(int activeStep)
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                using (new EditorGUI.DisabledScope(!CanPrepare()))
+                for (var index = 0; index < WorkflowLabels.Length; index++)
                 {
-                    if (GUILayout.Button("Prepare Play Capture"))
+                    var style = index < activeStep
+                        ? _styles.SegmentComplete
+                        : index == activeStep
+                            ? _styles.SegmentActive
+                            : _styles.Segment;
+                    GUILayout.Label(WorkflowLabels[index], style, GUILayout.ExpandWidth(true));
+                    if (index < WorkflowLabels.Length - 1)
                     {
-                        InvokeSession(() => _session.PrepareCapture(_sourceAvatar));
-                    }
-                }
-
-                using (new EditorGUI.DisabledScope(_session == null ||
-                                                   _session.Phase != MotionTakeSessionPhase.Ready))
-                {
-                    if (GUILayout.Button("Record"))
-                    {
-                        InvokeSession(_session.BeginRecording);
-                    }
-                }
-
-                using (new EditorGUI.DisabledScope(_session == null ||
-                                                   _session.Phase != MotionTakeSessionPhase.Recording))
-                {
-                    if (GUILayout.Button("Stop & Review"))
-                    {
-                        InvokeSession(_session.StopAndReview);
+                        GUILayout.Space(4f);
                     }
                 }
             }
+        }
 
-            using (new EditorGUILayout.HorizontalScope())
+        private void DrawSessionCard(MotionTakeStudioPhasePresentation presentation)
+        {
+            using (new EditorGUILayout.VerticalScope(_styles.Card))
             {
-                using (new EditorGUI.DisabledScope(_session == null ||
-                                                   _session.Phase != MotionTakeSessionPhase.Reviewing))
+                DrawSectionHeader(
+                    "Capture source",
+                    "Choose the Humanoid that owns the performance. The source is locked once preparation starts.");
+
+                using (new EditorGUI.DisabledScope(_session != null &&
+                                                   _session.Phase != MotionTakeSessionPhase.Idle &&
+                                                   _session.Phase != MotionTakeSessionPhase.Error))
                 {
-                    if (GUILayout.Button("Save & Exit"))
-                    {
-                        InvokeSession(_session.SaveAndExit);
-                    }
+                    _sourceAvatar = (Animator)EditorGUILayout.ObjectField(
+                        "Humanoid Animator",
+                        _sourceAvatar,
+                        typeof(Animator),
+                        true);
                 }
 
-                using (new EditorGUI.DisabledScope(_session == null ||
-                                                   _session.Phase == MotionTakeSessionPhase.Idle))
+                if (_sourceAvatar != null && !HasValidHumanoid(_sourceAvatar))
                 {
-                    if (GUILayout.Button("Cancel"))
+                    DrawNotice(
+                        "This Animator has no valid Humanoid Avatar. Select a Humanoid before preparing capture.",
+                        MotionTakeValidationSeverity.Error);
+                }
+
+                EditorGUILayout.Space(8f);
+                DrawHairline();
+                EditorGUILayout.Space(8f);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Label("SESSION", _styles.HeaderEyebrow, GUILayout.Width(88f));
+                    GUILayout.Label(
+                        _session == null
+                            ? "Not connected"
+                            : ObjectNames.NicifyVariableName(_session.Phase.ToString()),
+                        _styles.SectionTitle);
+                }
+
+                var status = MotionTakeStudioPresentation.ResolveStatus(
+                    _session == null
+                        ? "Capture is waiting for the coordinator to register."
+                        : _session.StatusMessage,
+                    _operationError);
+                if (!string.IsNullOrWhiteSpace(status.Message))
+                {
+                    DrawNotice(
+                        status.Message,
+                        status.IsError
+                            ? MotionTakeValidationSeverity.Error
+                            : presentation.IsRecording
+                                ? MotionTakeValidationSeverity.Warning
+                                : MotionTakeValidationSeverity.Info);
+                }
+            }
+        }
+
+        private void DrawPrimaryActions(MotionTakeStudioPhasePresentation presentation)
+        {
+            if (presentation.PrimaryAction == MotionTakePrimaryAction.None &&
+                !presentation.IsBusy &&
+                !presentation.CanCancel)
+            {
+                return;
+            }
+
+            using (new EditorGUILayout.VerticalScope(_styles.Card))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Label(
+                        presentation.IsBusy
+                            ? "Keep this window open while the operation completes."
+                            : "Continue the current workflow when the stage is ready.",
+                        _styles.SectionDescription);
+                    GUILayout.FlexibleSpace();
+
+                    if (presentation.CanCancel && _session != null)
                     {
-                        InvokeSession(_session.Cancel);
+                        using (new EditorGUI.DisabledScope(_session.Phase == MotionTakeSessionPhase.Idle))
+                        {
+                            if (GUILayout.Button("Cancel", _styles.SecondaryButton, GUILayout.Width(96f)))
+                            {
+                                InvokeSession(_session.Cancel);
+                            }
+                        }
+                    }
+
+                    if (presentation.PrimaryAction != MotionTakePrimaryAction.None || presentation.IsBusy)
+                    {
+                        using (new EditorGUI.DisabledScope(!CanInvokePrimary(presentation.PrimaryAction)))
+                        {
+                            var style = presentation.IsRecording
+                                ? _styles.RecordingButton
+                                : _styles.PrimaryButton;
+                            if (GUILayout.Button(
+                                    presentation.PrimaryLabel,
+                                    style,
+                                    GUILayout.MinWidth(156f)))
+                            {
+                                InvokePrimaryAction(presentation.PrimaryAction);
+                            }
+                        }
                     }
                 }
             }
@@ -181,35 +291,48 @@ namespace BuildSoft.MotionTakeStudio.Editor
 
         private void DrawReviewControls()
         {
-            EditorGUILayout.LabelField("Review", EditorStyles.boldLabel);
-            var maximumFrame = Mathf.Max(0, (_session?.FrameCount ?? 0) - 1);
-            using (var check = new EditorGUI.ChangeCheckScope())
+            using (new EditorGUILayout.VerticalScope(_styles.Card))
             {
-                _reviewFrame = EditorGUILayout.IntSlider("Frame", _reviewFrame, 0, maximumFrame);
-                if (check.changed)
+                var maximumFrame = Mathf.Max(0, (_session?.FrameCount ?? 0) - 1);
+                var frameRate = Mathf.Max(0f, _session?.FrameRate ?? 0f);
+                var time = frameRate > 0f ? _reviewFrame / frameRate : 0f;
+                DrawSectionHeader(
+                    "Timeline",
+                    $"Frame {_reviewFrame + 1} of {maximumFrame + 1}  ·  {time:0.000} s");
+
+                using (var check = new EditorGUI.ChangeCheckScope())
                 {
-                    ScrubToFrame(_reviewFrame);
+                    _reviewFrame = EditorGUILayout.IntSlider(_reviewFrame, 0, maximumFrame);
+                    if (check.changed)
+                    {
+                        ScrubToFrame(_reviewFrame);
+                    }
                 }
-            }
 
-            var frameRate = Mathf.Max(0f, _session?.FrameRate ?? 0f);
-            EditorGUILayout.LabelField(
-                "Time",
-                frameRate > 0f ? $"{_reviewFrame / frameRate:0.000} s" : "—");
-
-            using (var check = new EditorGUI.ChangeCheckScope())
-            {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Raw, "Raw");
-                    _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Ik, "IK");
-                    _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Automatic, "Auto");
-                    _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Manual, "Manual");
+                    if (GUILayout.Button("First", _styles.SecondaryButton)) ScrubToFrame(0);
+                    if (GUILayout.Button("Previous", _styles.SecondaryButton)) ScrubToFrame(_reviewFrame - 1);
+                    if (GUILayout.Button("Next", _styles.SecondaryButton)) ScrubToFrame(_reviewFrame + 1);
+                    if (GUILayout.Button("Last", _styles.SecondaryButton)) ScrubToFrame(maximumFrame);
                 }
 
-                if (check.changed && _session != null)
+                EditorGUILayout.Space(8f);
+                GUILayout.Label("SOLVE STAGES", _styles.HeaderEyebrow);
+                using (var check = new EditorGUI.ChangeCheckScope())
                 {
-                    InvokeSession(() => _session.SetOverlays(_overlays));
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Raw, "Raw");
+                        _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Ik, "IK");
+                        _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Automatic, "Auto");
+                        _overlays = DrawOverlayToggle(_overlays, MotionTakeOverlayFlags.Manual, "Manual");
+                    }
+
+                    if (check.changed && _session != null)
+                    {
+                        InvokeSession(() => _session.SetOverlays(_overlays));
+                    }
                 }
             }
         }
@@ -221,46 +344,111 @@ namespace BuildSoft.MotionTakeStudio.Editor
                 return;
             }
 
-            EditorGUILayout.LabelField("OpenVR Tracker Roles", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Provider", trackerSession.TrackerProviderName ?? "Unknown");
-            if (!string.IsNullOrWhiteSpace(trackerSession.TrackerDiagnostic))
+            using (new EditorGUILayout.VerticalScope(_styles.Card))
             {
-                EditorGUILayout.HelpBox(trackerSession.TrackerDiagnostic, MessageType.Info);
-            }
+                DrawSectionHeader(
+                    "Tracker roles",
+                    _session.Phase == MotionTakeSessionPhase.Recording
+                        ? "Assignments are read-only while recording."
+                        : "Map connected devices before starting the take.");
 
-            using (new EditorGUI.DisabledScope(_session.Phase == MotionTakeSessionPhase.Recording))
-            {
-                if (GUILayout.Button("Refresh Tracked Devices"))
+                using (new EditorGUILayout.HorizontalScope())
                 {
-                    InvokeSession(trackerSession.RefreshTrackedDevices);
+                    using (new EditorGUILayout.VerticalScope())
+                    {
+                        GUILayout.Label("PROVIDER", _styles.HeaderEyebrow);
+                        GUILayout.Label(trackerSession.TrackerProviderName ?? "Unknown", _styles.SectionTitle);
+                    }
+                    GUILayout.FlexibleSpace();
+                    using (new EditorGUI.DisabledScope(_session.Phase == MotionTakeSessionPhase.Recording))
+                    {
+                        if (GUILayout.Button("Refresh devices", _styles.SecondaryButton, GUILayout.Width(132f)))
+                        {
+                            InvokeSession(trackerSession.RefreshTrackedDevices);
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(trackerSession.TrackerDiagnostic))
+                {
+                    DrawNotice(trackerSession.TrackerDiagnostic, MotionTakeValidationSeverity.Info);
                 }
 
                 var devices = trackerSession.TrackedDevices;
                 if (devices == null || devices.Count == 0)
                 {
-                    EditorGUILayout.HelpBox(
-                        "Start SteamVR, then refresh. For six-point tracking assign Waist, Left Foot, and Right Foot explicitly.",
-                        MessageType.None);
+                    DrawNotice(
+                        "No tracked devices were found. Start SteamVR, refresh, then assign Waist and both Feet for six-point capture.",
+                        MotionTakeValidationSeverity.Info);
                     return;
                 }
 
-                foreach (var device in devices)
+                EditorGUILayout.Space(4f);
+                using (new EditorGUI.DisabledScope(_session.Phase == MotionTakeSessionPhase.Recording))
                 {
-                    if (device == null)
+                    foreach (var device in devices)
                     {
-                        continue;
-                    }
-
-                    using (new EditorGUILayout.HorizontalScope())
-                    {
-                        EditorGUILayout.LabelField(
-                            string.IsNullOrEmpty(device.Id) ? $"Device {device.Index}" : device.Id,
-                            GUILayout.MinWidth(160f));
-                        var role = (TrackerRole)EditorGUILayout.EnumPopup(device.Role, GUILayout.Width(120f));
-                        if (role != device.Role)
+                        if (device == null)
                         {
-                            var deviceId = device.Id;
-                            InvokeSession(() => trackerSession.AssignTrackerRole(deviceId, role));
+                            continue;
+                        }
+
+                        var rowStyle = device.Connected
+                            ? _styles.TrackerRow
+                            : _styles.TrackerRowDisconnected;
+                        if (position.width < 560f)
+                        {
+                            using (new EditorGUILayout.VerticalScope(rowStyle))
+                            {
+                                using (new EditorGUILayout.HorizontalScope())
+                                {
+                                    GUILayout.Label(
+                                        device.Connected ? "●  Connected" : "○  Offline",
+                                        _styles.SectionDescription);
+                                    GUILayout.FlexibleSpace();
+                                    var compactRole = (TrackerRole)EditorGUILayout.EnumPopup(
+                                        device.Role,
+                                        GUILayout.Width(128f));
+                                    AssignTrackerRoleIfChanged(trackerSession, device, compactRole);
+                                }
+                                GUILayout.Label(
+                                    MotionTakeStudioPresentation.PopulateTrackerLabel(
+                                        _trackerLabel,
+                                        device.Id,
+                                        device.Index),
+                                    _styles.TrackerId);
+                                GUILayout.Label(
+                                    string.IsNullOrEmpty(device.DeviceClass) ? "Unknown device class" : device.DeviceClass,
+                                    _styles.SectionDescription);
+                            }
+                        }
+                        else
+                        {
+                            using (new EditorGUILayout.HorizontalScope(rowStyle))
+                            {
+                                GUILayout.Label(
+                                    device.Connected ? "●  Connected" : "○  Offline",
+                                    _styles.SectionDescription,
+                                    GUILayout.Width(104f));
+                                using (new EditorGUILayout.VerticalScope())
+                                {
+                                    GUILayout.Label(
+                                        MotionTakeStudioPresentation.PopulateTrackerLabel(
+                                            _trackerLabel,
+                                            device.Id,
+                                            device.Index),
+                                        _styles.TrackerId);
+                                    GUILayout.Label(
+                                        string.IsNullOrEmpty(device.DeviceClass)
+                                            ? "Unknown device class"
+                                            : device.DeviceClass,
+                                        _styles.SectionDescription);
+                                }
+                                var role = (TrackerRole)EditorGUILayout.EnumPopup(
+                                    device.Role,
+                                    GUILayout.Width(128f));
+                                AssignTrackerRoleIfChanged(trackerSession, device, role);
+                            }
                         }
                     }
                 }
@@ -269,109 +457,190 @@ namespace BuildSoft.MotionTakeStudio.Editor
 
         private void DrawAuthoringControls()
         {
-            EditorGUILayout.LabelField("Pose Authoring", EditorStyles.boldLabel);
-            _selectedTarget = (PoseTarget)EditorGUILayout.EnumPopup("Target", _selectedTarget);
-            _influenceFrames = EditorGUILayout.IntSlider(
-                "Influence (frames)",
-                _influenceFrames,
-                1,
-                60);
-
-            var recipe = _session?.ActiveRecipe;
-            if (recipe == null)
+            using (new EditorGUILayout.VerticalScope(_styles.Card))
             {
-                EditorGUILayout.HelpBox("No correction recipe is active for this take.", MessageType.Info);
-                return;
-            }
+                DrawSectionHeader(
+                    "Pose correction",
+                    "Choose a target, set its influence, then adjust the Scene View handle.");
+                _selectedTarget = (PoseTarget)EditorGUILayout.EnumPopup("Target", _selectedTarget);
+                _influenceFrames = EditorGUILayout.IntSlider(
+                    "Influence (frames)",
+                    _influenceFrames,
+                    1,
+                    60);
 
-            var previewWarnings = ResolvePreviewDriver()?.LastIkWarnings;
-            if (previewWarnings != null)
-            {
-                foreach (var warning in previewWarnings)
+                var recipe = _session?.ActiveRecipe;
+                if (recipe == null)
                 {
-                    EditorGUILayout.HelpBox(warning, MessageType.Warning);
-                }
-            }
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Add Pose Key"))
-                {
-                    MotionTakeCorrectionAuthoring.AddPoseKey(
-                        recipe,
-                        ResolvePoseSource(),
-                        _selectedTarget,
-                        _reviewFrame,
-                        _influenceFrames);
-                    OnAuthoringChanged();
+                    DrawNotice("No correction recipe is active for this take.", MotionTakeValidationSeverity.Info);
+                    return;
                 }
 
-                using (new EditorGUI.DisabledScope(
-                           !MotionTakeCorrectionAuthoring.HasKeyAtFrame(recipe, _reviewFrame)))
+                var previewWarnings = ResolvePreviewDriver()?.LastIkWarnings;
+                if (previewWarnings != null)
                 {
-                    if (GUILayout.Button("Reset Target"))
+                    foreach (var warning in previewWarnings)
                     {
-                        MotionTakeCorrectionAuthoring.ResetTarget(recipe, _selectedTarget, _reviewFrame);
-                        OnAuthoringChanged();
-                    }
-
-                    if (GUILayout.Button("Delete Key"))
-                    {
-                        MotionTakeCorrectionAuthoring.DeleteKey(recipe, _reviewFrame);
-                        OnAuthoringChanged();
+                        DrawNotice(warning, MotionTakeValidationSeverity.Warning);
                     }
                 }
-            }
 
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Undo"))
+                EditorGUILayout.Space(8f);
+                if (position.width >= 560f)
                 {
-                    Undo.PerformUndo();
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        DrawAuthoringActions(recipe);
+                    }
+                }
+                else
+                {
+                    using (new EditorGUILayout.VerticalScope())
+                    {
+                        DrawAuthoringActions(recipe);
+                    }
                 }
 
-                if (GUILayout.Button("Redo"))
+                using (new EditorGUILayout.HorizontalScope())
                 {
-                    Undo.PerformRedo();
+                    if (GUILayout.Button("Undo", _styles.SecondaryButton)) Undo.PerformUndo();
+                    if (GUILayout.Button("Redo", _styles.SecondaryButton)) Undo.PerformRedo();
                 }
-            }
 
-            EditorGUILayout.HelpBox(
-                MotionTakeCorrectionAuthoring.SupportsRotation(_selectedTarget)
-                    ? "Use the Scene View position and rotation handles. Corrections are stored relative to the base pose."
-                    : "Elbow and knee targets use a position-only hint handle; rotation is intentionally disabled.",
-                MessageType.None);
+                DrawNotice(
+                    MotionTakeCorrectionAuthoring.SupportsRotation(_selectedTarget)
+                        ? "Scene handles edit position and rotation relative to the base pose."
+                        : "Elbow and knee hints are position-only bend guides; rotation stays locked.",
+                    MotionTakeValidationSeverity.Info);
+            }
         }
 
         private void DrawValidationIssues()
         {
-            EditorGUILayout.LabelField("Validation", EditorStyles.boldLabel);
-            var issues = _session?.ValidationIssues;
-            if (issues == null || issues.Count == 0)
+            using (new EditorGUILayout.VerticalScope(_styles.Card))
             {
-                EditorGUILayout.HelpBox("No validation issues.", MessageType.Info);
+                var issues = _session?.ValidationIssues;
+                var summary = MotionTakeStudioPresentation.SummarizeValidation(issues);
+                var description = summary.Total == 0
+                    ? "No issues detected across the corrected take."
+                    : $"{summary.Errors} errors  ·  {summary.Warnings} warnings  ·  {summary.Info} info";
+                DrawSectionHeader("Validation", description);
+
+                if (issues == null || issues.Count == 0)
+                {
+                    GUILayout.Label(
+                        new GUIContent("Take validation passed", EditorGUIUtility.IconContent("TestPassed").image),
+                        _styles.IssueInfo);
+                    return;
+                }
+
+                foreach (var issue in issues)
+                {
+                    if (issue == null)
+                    {
+                        continue;
+                    }
+
+                    var iconName = issue.Severity == MotionTakeValidationSeverity.Error
+                        ? "console.erroricon.sml"
+                        : issue.Severity == MotionTakeValidationSeverity.Warning
+                            ? "console.warnicon.sml"
+                            : "console.infoicon.sml";
+                    var style = issue.Severity == MotionTakeValidationSeverity.Error
+                        ? _styles.IssueError
+                        : issue.Severity == MotionTakeValidationSeverity.Warning
+                            ? _styles.IssueWarning
+                            : _styles.IssueInfo;
+                    var range = issue.EndFrame > issue.Frame
+                        ? $"Frames {issue.Frame}–{issue.EndFrame}"
+                        : $"Frame {issue.Frame}";
+                    var label = new GUIContent($"{range}  ·  {issue.Message}", EditorGUIUtility.IconContent(iconName).image);
+                    if (GUILayout.Button(label, style))
+                    {
+                        ScrubToFrame(issue.Frame);
+                    }
+                }
+            }
+        }
+
+        private void DrawAuthoringActions(MotionEditRecipe recipe)
+        {
+            if (GUILayout.Button("Add pose key", _styles.SecondaryButton))
+            {
+                MotionTakeCorrectionAuthoring.AddPoseKey(
+                    recipe,
+                    ResolvePoseSource(),
+                    _selectedTarget,
+                    _reviewFrame,
+                    _influenceFrames);
+                OnAuthoringChanged();
+            }
+
+            using (new EditorGUI.DisabledScope(
+                       !MotionTakeCorrectionAuthoring.HasKeyAtFrame(recipe, _reviewFrame)))
+            {
+                if (GUILayout.Button("Reset target", _styles.SecondaryButton))
+                {
+                    MotionTakeCorrectionAuthoring.ResetTarget(recipe, _selectedTarget, _reviewFrame);
+                    OnAuthoringChanged();
+                }
+
+                if (GUILayout.Button("Delete key", _styles.SecondaryButton))
+                {
+                    MotionTakeCorrectionAuthoring.DeleteKey(recipe, _reviewFrame);
+                    OnAuthoringChanged();
+                }
+            }
+        }
+
+        private void AssignTrackerRoleIfChanged(
+            IMotionTakeTrackerRoleSession trackerSession,
+            TrackedDeviceInfo device,
+            TrackerRole role)
+        {
+            if (role == device.Role)
+            {
                 return;
             }
 
-            foreach (var issue in issues)
-            {
-                if (issue == null)
-                {
-                    continue;
-                }
+            var deviceId = device.Id;
+            InvokeSession(() => trackerSession.AssignTrackerRole(deviceId, role));
+        }
 
-                var icon = issue.Severity == MotionTakeValidationSeverity.Error
-                    ? EditorGUIUtility.IconContent("console.erroricon.sml")
-                    : EditorGUIUtility.IconContent("console.warnicon.sml");
-                var range = issue.EndFrame > issue.Frame
-                    ? $"Frames {issue.Frame}–{issue.EndFrame}"
-                    : $"Frame {issue.Frame}";
-                var label = new GUIContent($"{range}: {issue.Message}", icon.image);
-                if (GUILayout.Button(label, EditorStyles.miniButton))
-                {
-                    ScrubToFrame(issue.Frame);
-                }
+        private void DrawSectionHeader(string title, string description)
+        {
+            GUILayout.Label(title, _styles.SectionTitle);
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                GUILayout.Label(description, _styles.SectionDescription);
             }
+            EditorGUILayout.Space(8f);
+        }
+
+        private void DrawNotice(string message, MotionTakeValidationSeverity severity)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            var iconName = severity == MotionTakeValidationSeverity.Error
+                ? "console.erroricon.sml"
+                : severity == MotionTakeValidationSeverity.Warning
+                    ? "console.warnicon.sml"
+                    : "console.infoicon.sml";
+            var style = severity == MotionTakeValidationSeverity.Error
+                ? _styles.IssueError
+                : severity == MotionTakeValidationSeverity.Warning
+                    ? _styles.IssueWarning
+                    : _styles.IssueInfo;
+            GUILayout.Label(new GUIContent(message, EditorGUIUtility.IconContent(iconName).image), style);
+        }
+
+        private void DrawHairline()
+        {
+            var rect = EditorGUILayout.GetControlRect(false, 1f);
+            EditorGUI.DrawRect(rect, _styles.Palette.Border);
         }
 
         private void BindSceneHandles()
@@ -404,14 +673,107 @@ namespace BuildSoft.MotionTakeStudio.Editor
 
         private bool CanPrepare()
         {
-            if (_session == null || _sourceAvatar == null || _sourceAvatar.avatar == null ||
-                !_sourceAvatar.avatar.isValid || !_sourceAvatar.avatar.isHuman)
+            if (_session == null || !HasValidHumanoid(_sourceAvatar))
             {
                 return false;
             }
 
             return _session.Phase == MotionTakeSessionPhase.Idle ||
                    _session.Phase == MotionTakeSessionPhase.Error;
+        }
+
+        private bool CanInvokePrimary(MotionTakePrimaryAction action)
+        {
+            switch (action)
+            {
+                case MotionTakePrimaryAction.Prepare:
+                    return CanPrepare();
+                case MotionTakePrimaryAction.Record:
+                    return _session != null && _session.Phase == MotionTakeSessionPhase.Ready;
+                case MotionTakePrimaryAction.StopAndReview:
+                    return _session != null && _session.Phase == MotionTakeSessionPhase.Recording;
+                case MotionTakePrimaryAction.SaveAndExit:
+                    return _session != null && _session.Phase == MotionTakeSessionPhase.Reviewing;
+                default:
+                    return false;
+            }
+        }
+
+        private void InvokePrimaryAction(MotionTakePrimaryAction action)
+        {
+            switch (action)
+            {
+                case MotionTakePrimaryAction.Prepare:
+                    InvokeSession(() => _session.PrepareCapture(_sourceAvatar));
+                    break;
+                case MotionTakePrimaryAction.Record:
+                    InvokeSession(_session.BeginRecording);
+                    break;
+                case MotionTakePrimaryAction.StopAndReview:
+                    InvokeSession(_session.StopAndReview);
+                    break;
+                case MotionTakePrimaryAction.SaveAndExit:
+                    InvokeSession(_session.SaveAndExit);
+                    break;
+            }
+        }
+
+        private static bool HasValidHumanoid(Animator animator)
+        {
+            return animator != null &&
+                   animator.avatar != null &&
+                   animator.avatar.isValid &&
+                   animator.avatar.isHuman;
+        }
+
+        private string ResolveStatusLabel()
+        {
+            if (_session == null)
+            {
+                return "OFFLINE";
+            }
+
+            switch (_session.Phase)
+            {
+                case MotionTakeSessionPhase.Preparing:
+                    return "PREPARING";
+                case MotionTakeSessionPhase.Ready:
+                    return "READY";
+                case MotionTakeSessionPhase.Recording:
+                    return "RECORDING";
+                case MotionTakeSessionPhase.Reviewing:
+                    return "REVIEW";
+                case MotionTakeSessionPhase.Saving:
+                    return "SAVING";
+                case MotionTakeSessionPhase.Error:
+                    return "ERROR";
+                default:
+                    return "IDLE";
+            }
+        }
+
+        private Color ResolveStatusColor()
+        {
+            if (_session == null)
+            {
+                return _styles.Palette.MutedText;
+            }
+
+            switch (_session.Phase)
+            {
+                case MotionTakeSessionPhase.Ready:
+                case MotionTakeSessionPhase.Reviewing:
+                    return _styles.Palette.Success;
+                case MotionTakeSessionPhase.Recording:
+                    return _styles.Palette.Recording;
+                case MotionTakeSessionPhase.Preparing:
+                case MotionTakeSessionPhase.Saving:
+                    return _styles.Palette.Warning;
+                case MotionTakeSessionPhase.Error:
+                    return _styles.Palette.Error;
+                default:
+                    return _styles.Palette.Accent;
+            }
         }
 
         private void ScrubToFrame(int frame)
@@ -498,13 +860,17 @@ namespace BuildSoft.MotionTakeStudio.Editor
             Repaint();
         }
 
-        private static MotionTakeOverlayFlags DrawOverlayToggle(
+        private MotionTakeOverlayFlags DrawOverlayToggle(
             MotionTakeOverlayFlags value,
             MotionTakeOverlayFlags flag,
             string label)
         {
             var enabled = (value & flag) != 0;
-            enabled = GUILayout.Toggle(enabled, label, EditorStyles.miniButton);
+            enabled = GUILayout.Toggle(
+                enabled,
+                enabled ? $"●  {label}" : label,
+                enabled ? _styles.SegmentActive : _styles.Segment,
+                GUILayout.ExpandWidth(true));
             return enabled ? value | flag : value & ~flag;
         }
     }
