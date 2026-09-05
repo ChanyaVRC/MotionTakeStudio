@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- Redesigned the Motion Take Studio Editor window as a responsive three-stage workbench with one primary action
+  per phase, explicit capture status, richer tracker rows, solve-stage controls, and severity-aware validation rows.
+- Added deterministic presentation, light/dark contrast, semantic-style, and validation-summary regression tests.
+
 ## [0.1.1] - 2026-08-13
 
 - Added SHA-pinned GitHub Actions automation. Pull requests run secret-free CI contract tests; protected `main`
